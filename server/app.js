@@ -1,0 +1,65 @@
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const rateLimit = require('express-rate-limit');
+const errorHandler = require('./middleware/errorHandler');
+const authRoutes = require('./routes/authRoutes');
+const documentRoutes = require('./routes/documentRoutes');
+const chatRoutes = require('./routes/chatRoutes');
+
+const app = express();
+
+// --------------- Global Middleware ---------------
+
+// CORS
+app.use(
+  cors({
+    origin: process.env.CLIENT_ORIGIN || '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
+
+// Body parsers
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Serve uploaded files statically (for debugging / admin)
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Rate limiting
+const apiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many requests, please try again later.' },
+});
+app.use('/api/', apiLimiter);
+
+// --------------- Routes ---------------
+
+app.get('/api/health', (_req, res) => {
+  res.json({
+    success: true,
+    status: 'healthy',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.use('/api/auth', authRoutes);
+app.use('/api/documents', documentRoutes);
+app.use('/api/chat', chatRoutes);
+
+// --------------- Error Handling ---------------
+
+// 404 handler for unknown routes
+app.use((_req, res) => {
+  res.status(404).json({ success: false, error: 'Route not found.' });
+});
+
+// Global error handler
+app.use(errorHandler);
+
+module.exports = app;
