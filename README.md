@@ -102,17 +102,95 @@ flowchart TB
 
 Redis is only used for BullMQ queue/runtime state: pending jobs, active jobs, retries, failures, and progress. Processed document data, chunks, embeddings, sessions, users, and chat history are persisted in MongoDB. When API and worker run as separate containers, `server/uploads` must be mounted as a shared volume so the worker can read files uploaded by the API container.
 
-## How It Works
+## End-to-End Flow
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor User
+  participant Browser as React app in browser
+  participant API as Express API container
+  participant Uploads as Shared uploads volume
+  participant Redis as Redis / BullMQ
+  participant Worker as Worker container
+  participant Mongo as MongoDB
+  participant Gemini as Gemini API
+
+  User->>Browser: Open app
+  Browser->>API: GET /
+  API-->>Browser: Built React HTML/CSS/JS
+
+  User->>Browser: Sign up or log in
+  Browser->>API: POST /api/auth/signup or /api/auth/login
+  API->>Mongo: Create or verify user
+  API-->>Browser: User + auth token
+
+  Browser->>API: GET /api/sessions
+  API->>Mongo: Read sessions and attached documents
+  API-->>Browser: Session list
+
+  User->>Browser: Upload document into selected session
+  Browser->>API: POST /api/documents/upload
+  API->>Uploads: Save uploaded file
+  API->>Mongo: Create Document with status uploaded
+  API->>Redis: Enqueue BullMQ job with documentId
+  API-->>Browser: Upload accepted
+
+  Redis-->>Worker: Deliver document processing job
+  Worker->>Mongo: Read Document metadata and file path
+  Worker->>Uploads: Read uploaded file
+  Worker->>Mongo: Set status parsing
+  Worker->>Redis: job.updateProgress parsing
+  Worker->>Gemini: Embed sentences for semantic chunking
+  Worker->>Mongo: Set status chunking
+  Worker->>Redis: job.updateProgress chunking
+  Worker->>Gemini: Embed final chunks
+  Worker->>Mongo: Store chunks and embeddings
+  Worker->>Mongo: Set Document ready
+  Worker->>Redis: job.updateProgress ready
+
+  API->>Redis: QueueEvents listens for job progress
+  API-->>Browser: Socket.io processing updates
+
+  User->>Browser: Ask a question
+  Browser->>API: POST /api/chat/sessions/:sessionId
+  API->>Mongo: Load session documents and conversation memory
+  API->>Gemini: Optional HyDE expansion
+  API->>Gemini: Embed query
+  API->>Mongo: Retrieve chunks across session documents
+  API->>Gemini: Generate grounded answer
+  API-->>Browser: Stream answer tokens over SSE
+  API->>Mongo: Save user and assistant messages
+```
+
+### Step-by-Step Runtime Flow
 
 1. A user signs up or logs in.
-2. The user creates or selects a session.
-3. Uploading a document attaches it to the selected session. If no session is selected, a new session is created.
-4. The API stores the file metadata in MongoDB and enqueues a BullMQ job.
-5. The worker parses the file, creates semantic chunks, generates embeddings, and stores chunks in MongoDB.
-6. The chatbox unlocks when the selected session has at least one document and all documents in that session are ready.
-7. A chat question retrieves relevant chunks from every ready document in the session.
-8. Gemini generates a grounded answer, streamed back to the client over SSE.
-9. Conversation history is saved and restored when switching sessions.
+2. The browser stores the returned bearer token and sends it on future API and SSE requests.
+3. The browser loads the user's sessions from `/api/sessions`.
+4. The user selects an existing session or starts with no selected session.
+5. When the user uploads a document, the browser sends the file to `/api/documents/upload`.
+6. If a session is selected, the uploaded document is attached to that session. If no session is selected, the API creates a new session first.
+7. The API saves the raw file into `server/uploads`. In Docker, this path must be a shared volume between the API and worker containers.
+8. The API creates a `Document` record in MongoDB with status `uploaded`.
+9. The API enqueues a BullMQ job in Redis containing the `documentId`.
+10. The worker receives the job from Redis and loads the document metadata from MongoDB.
+11. The worker reads the uploaded file from the shared uploads volume.
+12. The worker extracts text from PDF, DOCX, or TXT.
+13. The worker updates document status to `parsing`, `chunking`, `embedding`, and finally `ready`.
+14. During processing, the worker writes BullMQ job progress to Redis.
+15. The API process listens to BullMQ `QueueEvents` and relays progress to the browser with Socket.io.
+16. For semantic chunking, the worker splits text into sentences, embeds sentences with Gemini, finds cosine-similarity drops, and groups sentences into coherent chunks.
+17. The worker embeds the final chunks with Gemini.
+18. The worker stores chunk text, embeddings, token counts, and document processing metadata in MongoDB.
+19. The chatbox unlocks when the selected session has at least one document and every document in that session is `ready`.
+20. When the user asks a question, the browser posts to `/api/chat/sessions/:sessionId`.
+21. The API loads the session's documents and recent conversation memory from MongoDB.
+22. If HyDE is enabled, the API asks Gemini to generate a hypothetical answer and embeds that for better retrieval.
+23. The API embeds the query, retrieves matching chunks across all documents in the session, and merges vector plus keyword results with RRF.
+24. The API sends the retrieved context, conversation memory, and user question to Gemini.
+25. Gemini's answer is streamed back to the browser over SSE.
+26. The API saves the user question and assistant answer in MongoDB so the chat reappears when switching sessions.
 
 ## Project Structure
 
