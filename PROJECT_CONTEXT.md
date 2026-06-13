@@ -1,6 +1,6 @@
 # Talk to My Doc — Project Context Summary
 
-> **Last Updated:** 2026-06-12T22:05 IST  
+> **Last Updated:** 2026-06-13T11:55 IST  
 > **Purpose:** Feed this file to any AI to resume work on this project quickly.  
 > **Project Path:** `/Users/harshparihar/talk-to-my-doc/`
 
@@ -13,7 +13,7 @@
 ### Key Features
 
 - Login, signup, logout, and token-based authenticated API access
-- User-scoped documents and conversations
+- User-scoped sessions, documents, and conversations
 - Document upload for PDF, DOCX, and TXT
 - Persistent Redis/BullMQ queue for document processing
 - Separate document worker with controlled concurrency and retries
@@ -22,7 +22,7 @@
 - HyDE query expansion
 - Hybrid search: vector similarity + MongoDB `$text` + RRF fusion
 - SSE streaming chat responses
-- Grounded-answer prompt that refuses unsupported answers
+- Structured RAG prompt for direct answers, summaries, comparisons, missing-info handling, and plain-language explanations
 - ChatGPT-style UI with sessions sidebar and default-visible chatbox
 
 ---
@@ -109,9 +109,10 @@ server/
 │   └── documentQueue.js              # BullMQ queue, QueueEvents, Redis connections
 ├── models/
 │   ├── User.js
+│   ├── Session.js                    # userId-scoped chat session; one session can contain many documents
 │   ├── Document.js                   # userId-scoped document metadata/status
 │   ├── Chunk.js                      # chunk text + embedding + text index
-│   └── Conversation.js               # userId/documentId-scoped messages
+│   └── Conversation.js               # userId/sessionId-scoped messages; documentId kept for legacy compatibility
 ├── middleware/
 │   ├── auth.js
 │   ├── upload.js
@@ -126,10 +127,12 @@ server/
 │   └── ragService.js
 ├── controllers/
 │   ├── authController.js
+│   ├── sessionController.js          # session list/get/create/delete + legacy document migration
 │   ├── documentController.js         # upload, enqueue, processing pipeline, CRUD
 │   └── chatController.js
 └── routes/
     ├── authRoutes.js
+    ├── sessionRoutes.js
     ├── documentRoutes.js
     └── chatRoutes.js
 ```
@@ -181,7 +184,7 @@ Signup/Login
   -> protected routes attach req.user
 ```
 
-All document and chat routes require auth. Documents and conversations are filtered by `userId`.
+All session, document, and chat routes require auth. Sessions, documents, and conversations are filtered by `userId`.
 
 ### Upload + Redis/BullMQ Processing Flow
 
@@ -190,7 +193,9 @@ User uploads file
   -> POST /api/documents/upload
   -> requireAuth
   -> Multer saves file to server/uploads/
-  -> Document created with status: uploaded and userId
+  -> if sessionId is supplied, attach document to that session
+  -> otherwise create a new Session
+  -> Document created with status: uploaded, userId, and sessionId
   -> BullMQ job added to Redis: process-document-<documentId>
   -> HTTP response returns 201
 
@@ -240,23 +245,28 @@ raw text
 ### Chat/RAG Flow
 
 ```txt
-POST /api/chat/:documentId  (SSE)
+POST /api/chat/sessions/:sessionId  (SSE)
   -> requireAuth
-  -> verify document belongs to req.user
-  -> load/create conversation
+  -> verify session belongs to req.user
+  -> load all documents in the session
+  -> require at least one document and wait until all session documents are ready
+  -> load/create session-scoped conversation
   -> optional HyDE with helper model
   -> embed query with RETRIEVAL_QUERY task type
   -> hybrid search:
-       vector similarity over document chunks
+       vector similarity over chunks from all ready session documents
        MongoDB $text search
        RRF fusion
   -> Gemini chat generation:
        primary: gemini-3.5-flash
        fallback: gemini-3.1-flash-lite, gemini-2.5-flash
+       structured prompt grounds document-specific facts while allowing plain-language explanations for terms found in context
   -> stream tokens over SSE
   -> send sources
   -> save user/assistant messages
 ```
+
+Legacy document chat endpoints still exist for compatibility, but the active UI uses session chat.
 
 ---
 
@@ -267,13 +277,14 @@ Current intended UI behavior:
 - Unauthenticated users see the login/signup page first.
 - Authenticated users see the main chat app.
 - Sidebar title is `Sessions`, not `Documents`.
-- Sidebar session rows are document-backed sessions.
+- Sidebar rows are real sessions. One session can contain multiple uploaded documents.
 - Sidebar footer shows signed-in user and `Logout`.
 - Chatbox is visible by default even before a document is selected.
 - If user sends a message before uploading/selecting a doc, assistant replies: `Push doc first`.
 - Upload modal opens from chat input `+`.
-- Uploaded document auto-selects the new session.
-- Processing documents auto-refresh in the chat panel until ready.
+- Uploaded document attaches to the current selected session; if no session is selected, upload creates a new session.
+- Processing documents auto-refresh in the chat panel until all session documents are ready.
+- Chat is disabled until the selected session has at least one document and all documents in that session are ready.
 
 ---
 
@@ -350,9 +361,13 @@ All require `Authorization: Bearer <token>`.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/documents/upload` | Upload file and enqueue processing job |
-| GET | `/api/documents` | List current user's documents/sessions |
+| GET | `/api/sessions` | List current user's sessions with attached documents |
+| POST | `/api/sessions` | Create an empty session |
+| GET | `/api/sessions/:id` | Get one session with attached documents |
+| DELETE | `/api/sessions/:id` | Delete session, documents, chunks, conversations, and files |
+| GET | `/api/documents` | Legacy/current user's documents list |
 | GET | `/api/documents/:id` | Get one current-user document |
-| DELETE | `/api/documents/:id` | Delete document, chunks, conversations, and file |
+| DELETE | `/api/documents/:id` | Delete document, chunks, and file; deletes session only if it was the last document |
 
 ### Chat
 
@@ -360,8 +375,10 @@ All require `Authorization: Bearer <token>`.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/chat/:documentId` | Chat with document via SSE |
-| GET | `/api/chat/:documentId/conversations` | List conversations |
+| POST | `/api/chat/sessions/:sessionId` | Chat with all documents in a session via SSE |
+| GET | `/api/chat/sessions/:sessionId/conversations` | List session conversations |
+| POST | `/api/chat/:documentId` | Legacy single-document chat via SSE |
+| GET | `/api/chat/:documentId/conversations` | Legacy document conversations |
 | GET | `/api/chat/conversations/:conversationId` | Get conversation |
 | DELETE | `/api/chat/conversations/:conversationId` | Delete conversation |
 

@@ -1,5 +1,6 @@
 const fs = require('fs/promises');
 const Document = require('../models/Document');
+const Session = require('../models/Session');
 const Chunk = require('../models/Chunk');
 const Conversation = require('../models/Conversation');
 const { extractText } = require('../services/parserService');
@@ -19,9 +20,24 @@ async function uploadDocument(req, res, next) {
     }
 
     const { originalname, filename, mimetype, size, path: filePath } = req.file;
+    const requestedSessionId = req.body.sessionId || null;
+    let session;
+
+    if (requestedSessionId) {
+      session = await Session.findOne({ _id: requestedSessionId, userId: req.user.id });
+      if (!session) {
+        return res.status(404).json({ success: false, error: 'Session not found.' });
+      }
+    } else {
+      session = await Session.create({
+        userId: req.user.id,
+        title: originalname,
+      });
+    }
 
     const doc = await Document.create({
       userId: req.user.id,
+      sessionId: session._id,
       originalName: originalname,
       fileName: filename,
       mimeType: mimetype,
@@ -29,6 +45,9 @@ async function uploadDocument(req, res, next) {
       filePath,
       status: 'uploaded',
     });
+
+    session.updatedAt = new Date();
+    await session.save();
 
     await addDocumentProcessingJob({
       documentId: doc._id.toString(),
@@ -39,6 +58,7 @@ async function uploadDocument(req, res, next) {
       success: true,
       data: {
         id: doc._id,
+        sessionId: session._id,
         originalName: doc.originalName,
         status: doc.status,
         fileSize: doc.fileSize,
@@ -230,7 +250,7 @@ async function getDocument(req, res, next) {
 
 /**
  * DELETE /api/documents/:id
- * Delete a document and all its chunks and conversations.
+ * Delete a document and all its chunks.
  */
 async function deleteDocument(req, res, next) {
   try {
@@ -240,9 +260,20 @@ async function deleteDocument(req, res, next) {
       return res.status(404).json({ success: false, error: 'Document not found.' });
     }
 
-    // Delete associated chunks and conversations
+    // Delete associated chunks
     await Chunk.deleteMany({ documentId: doc._id });
-    await Conversation.deleteMany({ documentId: doc._id, userId: req.user.id });
+
+    const sessionDocumentCount = doc.sessionId
+      ? await Document.countDocuments({ sessionId: doc.sessionId, userId: req.user.id })
+      : 1;
+
+    if (sessionDocumentCount <= 1) {
+      await Conversation.deleteMany({
+        userId: req.user.id,
+        $or: [{ sessionId: doc.sessionId }, { documentId: doc._id }],
+      });
+      if (doc.sessionId) await Session.findOneAndDelete({ _id: doc.sessionId, userId: req.user.id });
+    }
 
     // Delete the file from disk
     try {

@@ -3,7 +3,27 @@ import { useDoc } from '../context/DocContext';
 import useSSE from '../hooks/useSSE';
 import MessageBubble from './MessageBubble';
 import { Spinner } from './Loader';
-import { getDocument } from '../services/api';
+import { getSession } from '../services/api';
+
+const PHASE_PROGRESS = {
+  uploaded: 10,
+  uploading: 10,
+  parsing: 25,
+  chunking: 55,
+  embedding: 80,
+  ready: 100,
+  error: 100,
+};
+
+const PHASE_LABELS = {
+  uploaded: 'Queued for processing',
+  uploading: 'Uploading document',
+  parsing: 'Parsing document',
+  chunking: 'Building semantic chunks',
+  embedding: 'Generating embeddings',
+  ready: 'Ready to chat',
+  error: 'Processing failed',
+};
 
 export default function ChatWindow({ onUploadClick }) {
   const {
@@ -19,7 +39,37 @@ export default function ChatWindow({ onUploadClick }) {
   const [input, setInput] = useState('');
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
-  const canChat = selectedDoc?.status === 'ready';
+  const sessionDocuments = selectedDoc?.documents || [];
+  const hasDocuments = sessionDocuments.length > 0;
+  const hasError = sessionDocuments.some((doc) => doc.status === 'error') || selectedDoc?.status === 'error';
+  const allReady = hasDocuments && sessionDocuments.every((doc) => doc.status === 'ready');
+  const canChat = allReady && !hasError;
+  const processingDocument =
+    sessionDocuments.find((doc) => doc.status !== 'ready' && doc.status !== 'error') ||
+    sessionDocuments.find((doc) => doc.status === 'error');
+  const currentPhase = processingDocument?.phase || processingDocument?.status || selectedDoc?.status;
+  const progressPercent = PHASE_PROGRESS[currentPhase] ?? 0;
+  const statusLabel = selectedDoc
+    ? canChat
+      ? `${PHASE_LABELS.ready} • ${sessionDocuments.length} document${sessionDocuments.length === 1 ? '' : 's'} • ${selectedDoc.totalChunks || 0} chunks`
+      : hasError
+        ? PHASE_LABELS.error
+        : hasDocuments
+          ? PHASE_LABELS[currentPhase] || 'Processing documents'
+          : 'Upload a document first'
+    : '';
+  const statusTitle = selectedDoc
+    ? hasDocuments
+      ? sessionDocuments.map((doc) => doc.originalName).join(', ')
+      : selectedDoc.title || 'New session'
+    : '';
+  const statusName = selectedDoc
+    ? hasDocuments
+      ? sessionDocuments.length === 1
+        ? sessionDocuments[0].originalName
+        : `${sessionDocuments.length} documents in this session`
+      : selectedDoc.title || 'New session'
+    : '';
 
   // Auto-scroll
   useEffect(() => {
@@ -56,24 +106,24 @@ export default function ChatWindow({ onUploadClick }) {
   }, [input]);
 
   useEffect(() => {
-    if (!selectedDoc || selectedDoc.status === 'ready' || selectedDoc.status === 'error') return;
+    if (!selectedDoc || canChat || hasError) return;
 
     let cancelled = false;
-    const refreshDocument = async () => {
+    const refreshSession = async () => {
       try {
-        const res = await getDocument(selectedDoc._id);
+        const res = await getSession(selectedDoc._id);
         if (!cancelled) setSelectedDoc(res.data);
       } catch (err) {
-        console.error('Failed to refresh document status:', err);
+        console.error('Failed to refresh session status:', err);
       }
     };
 
-    const intervalId = setInterval(refreshDocument, 1500);
+    const intervalId = setInterval(refreshSession, 1500);
     return () => {
       cancelled = true;
       clearInterval(intervalId);
     };
-  }, [selectedDoc?._id, selectedDoc?.status, setSelectedDoc]);
+  }, [selectedDoc?._id, canChat, hasError, setSelectedDoc]);
 
   const handleSend = async (question) => {
     const q = question || input.trim();
@@ -107,15 +157,6 @@ export default function ChatWindow({ onUploadClick }) {
 
   return (
     <div className="chat-container">
-      {selectedDoc && (
-        <div className="chat-doc-header">
-          <span className="chat-doc-name">{selectedDoc.originalName}</span>
-          <span className="chat-doc-meta">
-            {selectedDoc.status === 'ready' ? `${selectedDoc.totalChunks} chunks` : selectedDoc.status}
-          </span>
-        </div>
-      )}
-
       {/* Messages area */}
       <div className="chat-messages">
         {!selectedDoc && messages.length === 0 && (
@@ -136,19 +177,21 @@ export default function ChatWindow({ onUploadClick }) {
           </div>
         )}
 
-        {selectedDoc?.status !== 'ready' && selectedDoc && messages.length === 0 && (
+        {!canChat && selectedDoc && messages.length === 0 && (
           <div className="chat-start">
             <div className="chat-processing-spinner" />
             <h1>Preparing your session</h1>
-            <p>{selectedDoc.originalName}</p>
-            <span className="chat-start-status">Chat unlocks automatically when processing finishes.</span>
+            <p>{statusName}</p>
+            <span className="chat-start-status">
+              {hasDocuments ? 'Chat unlocks automatically when processing finishes.' : 'Push doc first.'}
+            </span>
           </div>
         )}
 
-        {selectedDoc?.status === 'ready' && messages.length === 0 && (
+        {canChat && messages.length === 0 && (
           <div className="chat-welcome">
             <div className="chat-welcome-icon">💬</div>
-            <h2>Ask anything about this document</h2>
+            <h2>Ask anything about this session</h2>
           </div>
         )}
 
@@ -162,6 +205,30 @@ export default function ChatWindow({ onUploadClick }) {
 
       {/* Input area */}
       <div className="chat-input-wrapper">
+        {selectedDoc && (
+          <div
+            className={`chat-file-status ${canChat ? 'chat-file-status--ready' : ''} ${
+              hasError ? 'chat-file-status--error' : ''
+            }`}
+            title={statusTitle}
+          >
+            <div className="chat-file-progress" style={{ '--progress': `${progressPercent}%` }}>
+              {canChat ? (
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M20 6 9 17l-5-5" />
+                </svg>
+              ) : hasError ? (
+                <span>!</span>
+              ) : (
+                <span>{progressPercent}%</span>
+              )}
+            </div>
+            <div className="chat-file-info">
+              <span className="chat-file-name">{statusName}</span>
+              <span className="chat-file-meta">{statusLabel}</span>
+            </div>
+          </div>
+        )}
         <div className="chat-input-box">
           <button
             className="chat-attach-btn"
@@ -176,7 +243,7 @@ export default function ChatWindow({ onUploadClick }) {
           <textarea
             ref={textareaRef}
             className="chat-textarea"
-            placeholder={canChat ? 'Ask a question...' : 'Upload and process a document to chat'}
+            placeholder={canChat ? 'Ask a question...' : 'Push doc first'}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -199,8 +266,8 @@ export default function ChatWindow({ onUploadClick }) {
         </div>
         <p className="chat-disclaimer">
           {canChat
-            ? 'AI can make mistakes. Responses are grounded in your document.'
-            : 'Upload a document before asking questions.'}
+            ? 'AI can make mistakes. Responses are grounded in this session.'
+            : 'Push doc first.'}
         </p>
       </div>
     </div>

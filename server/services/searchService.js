@@ -12,8 +12,14 @@ const TOP_K = 8;
  * @param {number} [limit=TOP_K]
  * @returns {Promise<{ chunk: object, score: number }[]>}
  */
+function documentCriteria(documentIds) {
+  return Array.isArray(documentIds)
+    ? { documentId: { $in: documentIds } }
+    : { documentId: documentIds };
+}
+
 async function vectorSearch(documentId, queryEmbedding, limit = TOP_K) {
-  const chunks = await Chunk.find({ documentId }).lean();
+  const chunks = await Chunk.find(documentCriteria(documentId)).lean();
 
   const scored = chunks.map((chunk) => ({
     chunk,
@@ -36,7 +42,7 @@ async function textSearch(documentId, query, limit = TOP_K) {
   try {
     const results = await Chunk.find(
       {
-        documentId,
+        ...documentCriteria(documentId),
         $text: { $search: query },
       },
       { score: { $meta: 'textScore' } }

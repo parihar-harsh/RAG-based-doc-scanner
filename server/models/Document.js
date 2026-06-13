@@ -8,6 +8,12 @@ const documentSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    sessionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Session',
+      default: null,
+      index: true,
+    },
     originalName: {
       type: String,
       required: true,

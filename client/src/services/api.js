@@ -48,9 +48,10 @@ export async function logout() {
 
 // ── Documents ──
 
-export async function uploadDocument(file, onUploadProgress) {
+export async function uploadDocument(file, onUploadProgress, sessionId = null) {
   const formData = new FormData();
   formData.append('document', file);
+  if (sessionId) formData.append('sessionId', sessionId);
 
   const response = await api.post('/documents/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -74,6 +75,28 @@ export async function deleteDocument(id) {
   return response.data;
 }
 
+// ── Sessions ──
+
+export async function getSessions() {
+  const response = await api.get('/sessions');
+  return response.data;
+}
+
+export async function getSession(id) {
+  const response = await api.get(`/sessions/${id}`);
+  return response.data;
+}
+
+export async function createSession(payload = {}) {
+  const response = await api.post('/sessions', payload);
+  return response.data;
+}
+
+export async function deleteSession(id) {
+  const response = await api.delete(`/sessions/${id}`);
+  return response.data;
+}
+
 // ── Chat ──
 
 export function chatWithDocument(documentId, question, conversationId) {
@@ -90,8 +113,27 @@ export function chatWithDocument(documentId, question, conversationId) {
   });
 }
 
+export function chatWithSession(sessionId, question, conversationId) {
+  const baseURL = import.meta.env.VITE_API_URL || '/api';
+  const body = JSON.stringify({ question, conversationId });
+
+  return fetch(`${baseURL}/chat/sessions/${sessionId}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    },
+    body,
+  });
+}
+
 export async function listConversations(documentId) {
   const response = await api.get(`/chat/${documentId}/conversations`);
+  return response.data;
+}
+
+export async function listSessionConversations(sessionId) {
+  const response = await api.get(`/chat/sessions/${sessionId}/conversations`);
   return response.data;
 }
 

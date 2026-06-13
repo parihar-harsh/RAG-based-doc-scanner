@@ -25,10 +25,16 @@ const conversationSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    sessionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Session',
+      default: null,
+      index: true,
+    },
     documentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Document',
-      required: true,
+      default: null,
       index: true,
     },
     title: {

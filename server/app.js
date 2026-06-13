@@ -1,11 +1,13 @@
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
 const path = require('path');
 const rateLimit = require('express-rate-limit');
 const errorHandler = require('./middleware/errorHandler');
 const authRoutes = require('./routes/authRoutes');
 const documentRoutes = require('./routes/documentRoutes');
 const chatRoutes = require('./routes/chatRoutes');
+const sessionRoutes = require('./routes/sessionRoutes');
 
 const app = express();
 
@@ -49,8 +51,20 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/sessions', sessionRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/chat', chatRoutes);
+
+// --------------- Production Client ---------------
+
+const clientDistPath = path.join(__dirname, 'public');
+const clientIndexPath = path.join(clientDistPath, 'index.html');
+if (process.env.SERVE_CLIENT !== 'false' && fs.existsSync(clientIndexPath)) {
+  app.use(express.static(clientDistPath));
+  app.get(/^(?!\/api\/).*/, (_req, res) => {
+    res.sendFile(clientIndexPath);
+  });
+}
 
 // --------------- Error Handling ---------------
 

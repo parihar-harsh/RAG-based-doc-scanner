@@ -1,5 +1,11 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { getDocuments, getDocument, deleteDocument as apiDeleteDoc } from '../services/api';
+import {
+  getSessions,
+  getSession,
+  listSessionConversations,
+  getConversation,
+  deleteSession as apiDeleteSession,
+} from '../services/api';
 
 const DocContext = createContext(null);
 
@@ -13,7 +19,7 @@ export function DocProvider({ children }) {
   const fetchDocuments = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await getDocuments();
+      const res = await getSessions();
       setDocuments(res.data || []);
     } catch (err) {
       console.error('Failed to fetch documents:', err);
@@ -22,22 +28,31 @@ export function DocProvider({ children }) {
     }
   }, []);
 
-  const selectDocument = useCallback(async (docId) => {
+  const selectDocument = useCallback(async (sessionId) => {
     try {
-      const res = await getDocument(docId);
+      const res = await getSession(sessionId);
       setSelectedDoc(res.data);
       setConversationId(null);
       setMessages([]);
+
+      const conversationsRes = await listSessionConversations(sessionId);
+      const latestConversation = conversationsRes.data?.[0];
+      if (!latestConversation) return;
+
+      const conversationRes = await getConversation(latestConversation._id);
+      const conversation = conversationRes.data;
+      setConversationId(conversation._id);
+      setMessages(conversation.messages || []);
     } catch (err) {
       console.error('Failed to fetch document:', err);
     }
   }, []);
 
-  const removeDocument = useCallback(async (docId) => {
+  const removeDocument = useCallback(async (sessionId) => {
     try {
-      await apiDeleteDoc(docId);
-      setDocuments((prev) => prev.filter((d) => d._id !== docId));
-      if (selectedDoc && selectedDoc._id === docId) {
+      await apiDeleteSession(sessionId);
+      setDocuments((prev) => prev.filter((d) => d._id !== sessionId));
+      if (selectedDoc && selectedDoc._id === sessionId) {
         setSelectedDoc(null);
         setMessages([]);
         setConversationId(null);

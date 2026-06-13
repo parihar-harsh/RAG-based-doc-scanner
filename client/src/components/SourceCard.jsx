@@ -10,6 +10,7 @@ export default function SourceCard({ source }) {
         onClick={() => setExpanded(!expanded)}
       >
         <span className="source-card-label">
+          {source.documentName && `${source.documentName} · `}
           Chunk #{source.chunkIndex + 1}
           {source.pageNumber != null && ` · Page ${source.pageNumber}`}
         </span>

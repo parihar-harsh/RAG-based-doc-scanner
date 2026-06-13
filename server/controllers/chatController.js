@@ -15,7 +15,28 @@ const Conversation = require('../models/Conversation');
 async function chatWithDocument(req, res, next) {
   const { documentId } = req.params;
   const { question, conversationId } = req.body;
+  return streamChatResponse({
+    req,
+    res,
+    question,
+    conversationId,
+    chatParams: { documentId },
+  });
+}
 
+async function chatWithSession(req, res, next) {
+  const { sessionId } = req.params;
+  const { question, conversationId } = req.body;
+  return streamChatResponse({
+    req,
+    res,
+    question,
+    conversationId,
+    chatParams: { sessionId },
+  });
+}
+
+async function streamChatResponse({ req, res, question, conversationId, chatParams }) {
   if (!question || typeof question !== 'string' || question.trim().length === 0) {
     return res.status(400).json({ success: false, error: 'Question is required.' });
   }
@@ -39,10 +60,10 @@ async function chatWithDocument(req, res, next) {
 
   try {
     const result = await chat({
-      documentId,
       userId: req.user.id,
       conversationId: conversationId || null,
       question: question.trim(),
+      ...chatParams,
       onChunk(text) {
         if (isClientConnected) {
           res.write(`data: ${JSON.stringify({ type: 'token', content: text })}\n\n`);
@@ -85,6 +106,21 @@ async function listConversations(req, res, next) {
     const { documentId } = req.params;
 
     const conversations = await Conversation.find({ documentId, userId: req.user.id })
+      .sort({ updatedAt: -1 })
+      .select('_id title createdAt updatedAt')
+      .lean();
+
+    res.json({ success: true, data: conversations });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function listSessionConversations(req, res, next) {
+  try {
+    const { sessionId } = req.params;
+
+    const conversations = await Conversation.find({ sessionId, userId: req.user.id })
       .sort({ updatedAt: -1 })
       .select('_id title createdAt updatedAt')
       .lean();
@@ -139,4 +175,11 @@ async function deleteConversation(req, res, next) {
   }
 }
 
-module.exports = { chatWithDocument, listConversations, getConversation, deleteConversation };
+module.exports = {
+  chatWithDocument,
+  chatWithSession,
+  listConversations,
+  listSessionConversations,
+  getConversation,
+  deleteConversation,
+};

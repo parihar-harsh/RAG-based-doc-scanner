@@ -8,7 +8,7 @@ export default function useSSE() {
   const [error, setError] = useState(null);
   const abortRef = useRef(null);
 
-  const startStream = useCallback(async (documentId, question, conversationId) => {
+  const startStream = useCallback(async (sessionId, question, conversationId) => {
     setStreamedText('');
     setSources([]);
     setError(null);
@@ -19,7 +19,7 @@ export default function useSSE() {
 
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || '/api'}/chat/${documentId}`,
+        `${import.meta.env.VITE_API_URL || '/api'}/chat/sessions/${sessionId}`,
         {
           method: 'POST',
           headers: {

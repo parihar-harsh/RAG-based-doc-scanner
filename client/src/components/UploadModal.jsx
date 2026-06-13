@@ -5,7 +5,7 @@ import { useDoc } from '../context/DocContext';
 import toast from 'react-hot-toast';
 
 export default function UploadModal({ isOpen, onClose }) {
-  const { fetchDocuments, selectDocument } = useDoc();
+  const { selectedDoc, fetchDocuments, selectDocument } = useDoc();
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
 
@@ -21,13 +21,17 @@ export default function UploadModal({ isOpen, onClose }) {
     try {
       setUploading(true);
       setProgress(0);
-      const result = await uploadDocument(file, (e) => {
-        if (e.total) setProgress(Math.round((e.loaded / e.total) * 100));
-      });
+      const result = await uploadDocument(
+        file,
+        (e) => {
+          if (e.total) setProgress(Math.round((e.loaded / e.total) * 100));
+        },
+        selectedDoc?._id || null
+      );
       toast.success(`"${file.name}" uploaded successfully!`);
       await fetchDocuments();
-      if (result?.data?.id) {
-        await selectDocument(result.data.id);
+      if (result?.data?.sessionId) {
+        await selectDocument(result.data.sessionId);
       }
       onClose();
     } catch (err) {
@@ -36,7 +40,7 @@ export default function UploadModal({ isOpen, onClose }) {
       setUploading(false);
       setProgress(0);
     }
-  }, [fetchDocuments, onClose, selectDocument]);
+  }, [fetchDocuments, onClose, selectDocument, selectedDoc?._id]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
