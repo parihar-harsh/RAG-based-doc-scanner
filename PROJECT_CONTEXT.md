@@ -37,7 +37,7 @@
 | Frontend | React 19 + Vite 8 + React Router 7 |
 | Styling | Vanilla CSS, dark ChatGPT-inspired theme |
 | Backend | Express.js + Node.js CommonJS |
-| Auth | Custom signed bearer token + hashed passwords |
+| Auth | JWT bearer token + hashed passwords |
 | Database | MongoDB Atlas + Mongoose |
 | Queue | Redis + BullMQ |
 | Worker | Separate Node worker process |
@@ -56,6 +56,8 @@
 ```env
 # Server
 PORT=5001
+JWT_SECRET=...
+JWT_EXPIRES_IN=7d
 REDIS_URL=redis://127.0.0.1:6379
 DOCUMENT_WORKER_CONCURRENCY=1
 DOCUMENT_JOB_ATTEMPTS=5
@@ -193,10 +195,10 @@ client/
 Signup/Login
   -> POST /api/auth/signup or /api/auth/login
   -> server hashes password / verifies password
-  -> server returns { user, token }
+  -> server signs JWT and returns { user, token }
   -> client stores token in localStorage
   -> Axios and SSE fetches send Authorization: Bearer <token>
-  -> protected routes attach req.user
+  -> requireAuth verifies JWT issuer/audience and attaches req.user
 ```
 
 All session, document, and chat routes require auth. Sessions, documents, and conversations are filtered by `userId`.

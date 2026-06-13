@@ -1,49 +1,33 @@
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 
-const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || process.env.GEMINI_API_KEY || 'dev-auth-secret';
-
-function base64url(input) {
-  return Buffer.from(input).toString('base64url');
-}
-
-function sign(payload) {
-  return crypto
-    .createHmac('sha256', TOKEN_SECRET)
-    .update(payload)
-    .digest('base64url');
-}
+const JWT_SECRET = process.env.JWT_SECRET || process.env.AUTH_TOKEN_SECRET || process.env.GEMINI_API_KEY || 'dev-jwt-secret';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 function createToken(user) {
-  const payload = JSON.stringify({
-    sub: user._id.toString(),
-    email: user.email,
-    exp: Date.now() + TOKEN_TTL_MS,
-  });
-  const encodedPayload = base64url(payload);
-  return `${encodedPayload}.${sign(encodedPayload)}`;
+  return jwt.sign(
+    {
+      sub: user._id.toString(),
+      email: user.email,
+    },
+    JWT_SECRET,
+    {
+      expiresIn: JWT_EXPIRES_IN,
+      issuer: 'talk-to-my-doc',
+      audience: 'talk-to-my-doc-client',
+    }
+  );
 }
 
 function verifyToken(token) {
-  if (!token || typeof token !== 'string' || !token.includes('.')) {
+  if (!token || typeof token !== 'string') {
     throw new Error('Invalid token');
   }
 
-  const [encodedPayload, signature] = token.split('.');
-  const expectedSignature = sign(encodedPayload);
-  const provided = Buffer.from(signature || '');
-  const expected = Buffer.from(expectedSignature);
-
-  if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
-    throw new Error('Invalid token');
-  }
-
-  const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
-  if (!payload.exp || payload.exp < Date.now()) {
-    throw new Error('Token expired');
-  }
-
-  return payload;
+  return jwt.verify(token, JWT_SECRET, {
+    issuer: 'talk-to-my-doc',
+    audience: 'talk-to-my-doc-client',
+  });
 }
 
 function hashPassword(password) {

@@ -6,7 +6,7 @@ The app uses React/Vite on the frontend, Express/MongoDB on the backend, Redis/B
 
 ## Features
 
-- Login, signup, logout, and bearer-token protected API routes
+- Login, signup, logout, and JWT bearer-token protected API routes
 - Multi-document chat sessions
 - PDF, DOCX, and TXT uploads
 - Persistent Redis/BullMQ document-processing queue
@@ -31,7 +31,7 @@ The app uses React/Vite on the frontend, Express/MongoDB on the backend, Redis/B
 | Database | MongoDB Atlas, Mongoose |
 | Queue | Redis, BullMQ |
 | Realtime | Socket.io, SSE |
-| Auth | Custom signed bearer token, hashed passwords |
+| Auth | JWT bearer tokens, hashed passwords |
 | AI | Google Gemini API |
 | Embeddings | `gemini-embedding-2` |
 | Chat | `gemini-3.5-flash` with fallback models |
@@ -169,7 +169,7 @@ sequenceDiagram
 ### Step-by-Step Runtime Flow
 
 1. A user signs up or logs in.
-2. The browser stores the returned bearer token and sends it on future API and SSE requests.
+2. The browser stores the returned JWT bearer token and sends it on future API and SSE requests.
 3. The browser loads the user's sessions from `/api/sessions`.
 4. The user selects an existing session or starts with no selected session.
 5. When the user uploads a document, the browser sends the file to `/api/documents/upload`.
@@ -287,6 +287,8 @@ Create `server/.env`:
 PORT=5001
 CLIENT_ORIGIN=http://localhost:5173
 MONGODB_URI=mongodb+srv://<user>:<pass>@cluster.mongodb.net/talk-to-my-doc
+JWT_SECRET=replace-with-a-long-random-secret
+JWT_EXPIRES_IN=7d
 
 # Redis / BullMQ
 REDIS_URL=redis://127.0.0.1:6379
