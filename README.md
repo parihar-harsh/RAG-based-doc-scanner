@@ -37,22 +37,70 @@ The app uses React/Vite on the frontend, Express/MongoDB on the backend, Redis/B
 ## Architecture
 
 ```mermaid
-flowchart LR
-  User[User] --> Client[React/Vite Client]
-  Client -->|REST auth/sessions/uploads| API[Express API]
-  Client -->|SSE chat stream| API
-  Client -->|Socket.io progress| API
+flowchart TB
+  User[User]
 
-  API --> Mongo[(MongoDB)]
-  API --> Redis[(Redis)]
-  API -->|enqueue document job| Queue[BullMQ Queue]
-  Queue --> Worker[Document Worker]
-  Worker -->|parse/chunk/embed| Gemini[Gemini API]
-  Worker --> Mongo
-  Worker --> Redis
+  subgraph Browser[Browser]
+    SPA[React SPA]
+  end
 
-  API -->|retrieve chunks + generate answer| Gemini
+  subgraph APIContainer[API and frontend container]
+    Static[Express serves built React files]
+    API[Express API routes]
+    Realtime[Socket.io and SSE]
+    QueueRelay[BullMQ QueueEvents relay]
+  end
+
+  subgraph WorkerContainer[Worker container]
+    Worker[Document processing worker]
+  end
+
+  Uploads[(Shared uploads volume)]
+
+  subgraph RedisStore[Redis]
+    Queue[BullMQ jobs]
+    JobState[Job state, retries, progress]
+  end
+
+  subgraph MongoStore[MongoDB]
+    Users[(Users)]
+    Sessions[(Sessions)]
+    Documents[(Documents)]
+    Chunks[(Chunks + Embeddings)]
+    Conversations[(Conversations)]
+  end
+
+  Gemini[Gemini API]
+
+  User -->|opens app| SPA
+  SPA -->|GET /| Static
+  Static -->|HTML, CSS, JS| SPA
+
+  SPA -->|REST: auth, sessions, upload, chat| API
+  API -->|SSE answer stream| Realtime
+  Realtime -->|tokens and progress events| SPA
+  SPA -->|Socket.io connection| Realtime
+
+  API -->|write uploaded file| Uploads
+  API -->|create document and session records| MongoStore
+  API -->|enqueue document job| Queue
+
+  Queue -->|documentId job payload| Worker
+  Worker -->|read uploaded file| Uploads
+  Worker -->|parse and embed| Gemini
+  Worker -->|update status and metadata| Documents
+  Worker -->|save chunk text and vectors| Chunks
+  Worker -->|job.updateProgress| JobState
+
+  QueueRelay -->|subscribe to progress events| JobState
+  QueueRelay -->|emit processing events| Realtime
+
+  API -->|read sessions, documents, chunks, history| MongoStore
+  API -->|HyDE, query embedding, answer generation| Gemini
+  API -->|save chat messages| Conversations
 ```
+
+Redis is only used for BullMQ queue/runtime state: pending jobs, active jobs, retries, failures, and progress. Processed document data, chunks, embeddings, sessions, users, and chat history are persisted in MongoDB. When API and worker run as separate containers, `server/uploads` must be mounted as a shared volume so the worker can read files uploaded by the API container.
 
 ## How It Works
 
@@ -271,16 +319,29 @@ Build the worker image:
 docker build --target worker -t talk-to-my-doc-worker .
 ```
 
+Create the shared upload volume:
+
+```bash
+docker volume create talk-to-my-doc-uploads
+```
+
 Run API/frontend:
 
 ```bash
-docker run --env-file server/.env -p 5001:5001 talk-to-my-doc-api
+docker run \
+  --env-file server/.env \
+  -p 5001:5001 \
+  -v talk-to-my-doc-uploads:/app/server/uploads \
+  talk-to-my-doc-api
 ```
 
 Run worker:
 
 ```bash
-docker run --env-file server/.env talk-to-my-doc-worker
+docker run \
+  --env-file server/.env \
+  -v talk-to-my-doc-uploads:/app/server/uploads \
+  talk-to-my-doc-worker
 ```
 
 If Redis is running on your host machine and the app is inside Docker, set:
@@ -289,7 +350,7 @@ If Redis is running on your host machine and the app is inside Docker, set:
 REDIS_URL=redis://host.docker.internal:6379
 ```
 
-For production, run API and worker as separate containers using the same environment variables. MongoDB Atlas can remain external.
+For production, run API and worker as separate containers using the same environment variables and the same upload volume. MongoDB Atlas can remain external.
 
 ## RAG Pipeline
 
