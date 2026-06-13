@@ -18,6 +18,12 @@ const CHAT_MODELS = [
 const MEMORY_LIMIT = parseInt(process.env.CONVERSATION_MEMORY_LIMIT, 10) || 10;
 const ENABLE_HYDE = process.env.ENABLE_HYDE !== 'false'; // default true
 const ENABLE_HYBRID = process.env.ENABLE_HYBRID_SEARCH !== 'false'; // default true
+const RAG_TOP_K_FACTUAL = parseInt(process.env.RAG_TOP_K_FACTUAL, 10) || 6;
+const RAG_TOP_K_DEFAULT = parseInt(process.env.RAG_TOP_K_DEFAULT, 10) || 8;
+const RAG_TOP_K_BROAD = parseInt(process.env.RAG_TOP_K_BROAD, 10) || 12;
+const RAG_TOP_K_COMPARE = parseInt(process.env.RAG_TOP_K_COMPARE, 10) || 14;
+const ENABLE_QUERY_REWRITE = process.env.ENABLE_QUERY_REWRITE !== 'false';
+const QUERY_REWRITE_MODEL = process.env.GEMINI_QUERY_REWRITE_MODEL || process.env.GEMINI_HYDE_MODEL || CHAT_MODEL;
 
 const SYSTEM_PROMPT = `You are a careful document assistant for a RAG app. Your job is to help the user understand the uploaded document, not merely quote it.
 
@@ -54,6 +60,92 @@ Output constraints:
 3. Do not include irrelevant disclaimers.
 4. If the user asks for information outside the document, say whether the document covers it. You may provide a general explanation only if it helps interpret a term found in the document.`;
 
+function classifyQuestion(question) {
+  const q = question.trim().toLowerCase();
+  const wordCount = q.split(/\s+/).filter(Boolean).length;
+
+  if (/\b(compare|contrast|difference|differences|versus|vs\.?|between|across|better|worse)\b/.test(q)) {
+    return 'compare';
+  }
+  if (/\b(summary|summarize|overview|main points|key points|entire|whole|overall|brief)\b/.test(q)) {
+    return 'broad';
+  }
+  if (/\b(meaning|mean|define|definition|explain|what is|what are|stands for)\b/.test(q)) {
+    return 'definition';
+  }
+  if (/\b(clause|section|page|date|number|amount|who|when|where|which)\b/.test(q)) {
+    return 'factual';
+  }
+  if (wordCount <= 4) return 'short';
+  return 'default';
+}
+
+function chooseTopK(questionType, documentCount) {
+  const multiDocBoost = documentCount > 1 ? Math.min(documentCount, 4) : 0;
+
+  switch (questionType) {
+    case 'compare':
+      return RAG_TOP_K_COMPARE + multiDocBoost;
+    case 'broad':
+      return RAG_TOP_K_BROAD + multiDocBoost;
+    case 'factual':
+      return RAG_TOP_K_FACTUAL + multiDocBoost;
+    default:
+      return RAG_TOP_K_DEFAULT + multiDocBoost;
+  }
+}
+
+function shouldUseHyde(question, questionType) {
+  const wordCount = question.trim().split(/\s+/).filter(Boolean).length;
+  if (!ENABLE_HYDE) return false;
+  if (['factual', 'compare'].includes(questionType)) return false;
+  return questionType === 'short' || questionType === 'definition' || wordCount <= 10;
+}
+
+function formatMemoryForRewrite(memory) {
+  return memory
+    .slice(-6)
+    .map((msg) => `${msg.role === 'assistant' ? 'Assistant' : 'User'}: ${msg.content}`)
+    .join('\n');
+}
+
+async function rewriteQuestionForRetrieval(question, memory, documentName) {
+  if (!ENABLE_QUERY_REWRITE || memory.length === 0) return question;
+
+  const q = question.trim();
+  const likelyFollowUp =
+    /\b(it|this|that|they|them|those|these|he|she|above|previous|same|there)\b/i.test(q) ||
+    q.split(/\s+/).filter(Boolean).length <= 7;
+
+  if (!likelyFollowUp) return question;
+
+  try {
+    const model = genAI.getGenerativeModel({ model: QUERY_REWRITE_MODEL });
+    const prompt = `Rewrite the user's latest question into a standalone retrieval query for searching uploaded documents.
+
+Rules:
+- Preserve the user's intent.
+- Resolve pronouns or references using conversation history.
+- Keep it concise.
+- Do not answer the question.
+- Return only the rewritten query.
+
+Documents: ${documentName}
+
+Conversation:
+${formatMemoryForRewrite(memory)}
+
+Latest question: ${question}`;
+
+    const result = await model.generateContent(prompt);
+    const rewritten = result.response.text().trim();
+    return rewritten || question;
+  } catch (err) {
+    console.warn('Query rewrite failed, using original question:', err.message);
+    return question;
+  }
+}
+
 /**
  * Build the messages array for the Gemini chat.
  *
@@ -64,15 +156,28 @@ Output constraints:
  * @param {string} params.documentName - Name of the document
  * @returns {{ systemInstruction: string, contents: object[] }}
  */
-function buildPrompt({ question, contextChunks, memory, documentName }) {
+function buildPrompt({ question, retrievalQuestion, contextChunks, memory, documentName, questionType }) {
   const contextText = contextChunks
     .map((c, i) => {
       const sourceName = c.documentName ? `, source: ${c.documentName}` : '';
-      return `[Chunk ${i + 1}] (relevance: ${c.score.toFixed(3)}${sourceName})\n${c.chunk.text}`;
+      return `[Source ${i + 1}] (relevance: ${c.score.toFixed(3)}${sourceName}, chunk: ${c.chunk.chunkIndex + 1})\n${c.chunk.text}`;
     })
     .join('\n\n---\n\n');
 
-  const systemInstruction = `${SYSTEM_PROMPT}\n\nDocument: "${documentName}"\n\n--- DOCUMENT CONTEXT ---\n${contextText}\n--- END CONTEXT ---`;
+  const systemInstruction = `${SYSTEM_PROMPT}
+
+Documents: "${documentName}"
+Question type: ${questionType}
+Retrieval query used: "${retrievalQuestion}"
+
+Citation rules:
+1. Cite sources as "(Source 1)" or "(Source 2, Source 4)".
+2. When multiple documents are present, mention the document name when comparing or distinguishing facts.
+3. If no source supports a claim, do not make that claim.
+
+--- DOCUMENT CONTEXT ---
+${contextText}
+--- END CONTEXT ---`;
 
   // Build contents array with conversation history
   const contents = [];
@@ -161,24 +266,29 @@ async function chat({ documentId, sessionId, userId, conversationId, question, o
   // 3. Load memory (last N messages)
   const memory = conversation.messages.slice(-MEMORY_LIMIT * 2); // *2 because each exchange = user+assistant
 
-  // 4. Optionally run HyDE
-  let textToEmbed = question;
-  if (ENABLE_HYDE) {
+  // 4. Plan retrieval
+  const questionType = classifyQuestion(question);
+  const retrievalQuestion = await rewriteQuestionForRetrieval(question, memory, documentName);
+  const topK = chooseTopK(questionType, documents.length);
+
+  // 5. Optionally run HyDE
+  let textToEmbed = retrievalQuestion;
+  if (shouldUseHyde(retrievalQuestion, questionType)) {
     try {
-      const hydeAnswer = await generateHypotheticalAnswer(question, document.originalName);
+      const hydeAnswer = await generateHypotheticalAnswer(retrievalQuestion, documentName);
       textToEmbed = hydeAnswer;
     } catch (err) {
       console.warn('HyDE failed, using original question:', err.message);
-      // Fall back to original question
     }
   }
 
-  // 5. Embed query
+  // 6. Embed query
   const queryEmbedding = await embedText(textToEmbed);
 
-  // 6. Run hybrid search
-  const searchResults = await hybridSearch(documentIds, question, queryEmbedding, {
+  // 7. Run hybrid search
+  const searchResults = await hybridSearch(documentIds, retrievalQuestion, queryEmbedding, {
     enableHybrid: ENABLE_HYBRID,
+    topK,
   }).then((results) =>
     results.map((result) => ({
       ...result,
@@ -186,15 +296,17 @@ async function chat({ documentId, sessionId, userId, conversationId, question, o
     }))
   );
 
-  // 7. Build prompt
+  // 8. Build prompt
   const { systemInstruction, contents } = buildPrompt({
     question,
+    retrievalQuestion,
     contextChunks: searchResults,
     memory,
     documentName,
+    questionType,
   });
 
-  // 8. Call Gemini with streaming
+  // 9. Call Gemini with streaming
   let fullResponse = '';
   let lastGenerationError = null;
 
@@ -232,7 +344,7 @@ async function chat({ documentId, sessionId, userId, conversationId, question, o
     throw lastGenerationError;
   }
 
-  // 9. Save messages to conversation
+  // 10. Save messages to conversation
   conversation.messages.push({ role: 'user', content: question });
   conversation.messages.push({ role: 'assistant', content: fullResponse });
   await conversation.save();

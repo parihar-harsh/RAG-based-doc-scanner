@@ -53,6 +53,21 @@ async function addDocumentProcessingJob({ documentId, userId }) {
   );
 }
 
+async function retryDocumentProcessingJob({ documentId, userId }) {
+  const jobId = `process-document-${documentId}`;
+  const existingJob = await documentQueue.getJob(jobId);
+
+  if (existingJob) {
+    const state = await existingJob.getState();
+    if (state === 'active') {
+      throw new Error('Document is already being processed.');
+    }
+    await existingJob.remove();
+  }
+
+  return addDocumentProcessingJob({ documentId, userId });
+}
+
 function startDocumentQueueEventRelay() {
   documentQueueEvents.on('progress', ({ data }) => {
     if (!data?.documentId || !data?.phase) return;
@@ -81,6 +96,7 @@ module.exports = {
   createRedisConnection,
   documentQueue,
   addDocumentProcessingJob,
+  retryDocumentProcessingJob,
   startDocumentQueueEventRelay,
   closeDocumentQueueResources,
 };

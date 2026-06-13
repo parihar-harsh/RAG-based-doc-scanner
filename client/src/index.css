@@ -135,8 +135,16 @@ input, textarea { font-family: var(--font-body); outline: none; border: none; ba
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  transition: transform var(--transition-base);
+  overflow: hidden;
+  transition: width var(--transition-base), min-width var(--transition-base), transform var(--transition-base), border-color var(--transition-base);
   z-index: 20;
+}
+
+.app-layout--sidebar-collapsed .app-sidebar {
+  width: 0;
+  min-width: 0;
+  border-right-color: transparent;
+  transform: translateX(-100%);
 }
 
 .sidebar {
@@ -316,13 +324,12 @@ input, textarea { font-family: var(--font-body); outline: none; border: none; ba
   background: rgba(239, 68, 68, 0.1);
 }
 
-/* Sidebar toggle (mobile) */
 .sidebar-toggle {
-  display: none;
+  display: flex;
   position: fixed;
   top: 12px;
-  left: 12px;
-  z-index: 30;
+  left: calc(var(--sidebar-width) + 12px);
+  z-index: 35;
   width: 36px;
   height: 36px;
   border-radius: var(--radius-md);
@@ -332,6 +339,14 @@ input, textarea { font-family: var(--font-body); outline: none; border: none; ba
   font-size: 1.1rem;
   align-items: center;
   justify-content: center;
+  transition: left var(--transition-base), background var(--transition-fast), border-color var(--transition-fast);
+}
+.sidebar-toggle--closed {
+  left: 12px;
+}
+.sidebar-toggle:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-muted);
 }
 
 /* ─── MAIN CHAT AREA ─── */
@@ -762,6 +777,7 @@ input, textarea { font-family: var(--font-body); outline: none; border: none; ba
 
 .chat-file-info {
   min-width: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -791,6 +807,96 @@ input, textarea { font-family: var(--font-body); outline: none; border: none; ba
   color: var(--status-error);
 }
 
+.chat-file-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.session-doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: var(--chat-max-width);
+  max-height: 170px;
+  overflow-y: auto;
+  margin: 0 auto 10px;
+}
+
+.session-doc-item {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.session-doc-details {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.session-doc-name {
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-doc-status {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1.25;
+  text-transform: capitalize;
+}
+
+.session-doc-status--error {
+  color: var(--status-error);
+}
+
+.session-doc-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.session-doc-action {
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  transition: all var(--transition-fast);
+}
+
+.session-doc-action:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.session-doc-action--danger:hover:not(:disabled) {
+  border-color: rgba(239, 68, 68, 0.35);
+  color: var(--status-error);
+}
+
+.session-doc-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .chat-input-box {
   display: flex;
   align-items: flex-end;
@@ -809,6 +915,17 @@ input, textarea { font-family: var(--font-body); outline: none; border: none; ba
 .chat-input-box:has(.chat-textarea:disabled) {
   background: rgba(47, 47, 47, 0.6);
   border-color: var(--border-light);
+}
+.chat-input-box--upload-trigger {
+  cursor: pointer;
+}
+.chat-input-box--upload-trigger:hover,
+.chat-input-box--upload-trigger:focus-visible {
+  border-color: var(--border-focus);
+  background: var(--bg-input);
+}
+.chat-input-box--upload-trigger .chat-textarea {
+  pointer-events: none;
 }
 
 .chat-attach-btn {
@@ -1119,8 +1236,10 @@ input, textarea { font-family: var(--font-body); outline: none; border: none; ba
 
 /* ─── RESPONSIVE ─── */
 @media (max-width: 768px) {
-  .sidebar-toggle {
-    display: flex;
+  .sidebar-toggle,
+  .sidebar-toggle--open,
+  .sidebar-toggle--closed {
+    left: 12px;
   }
 
   .app-sidebar {
@@ -1132,12 +1251,27 @@ input, textarea { font-family: var(--font-body); outline: none; border: none; ba
     z-index: 25;
     box-shadow: 4px 0 24px rgba(0,0,0,0.4);
   }
+  .app-layout--sidebar-collapsed .app-sidebar {
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
+    border-right-color: var(--border);
+  }
   .app-sidebar--open {
     transform: translateX(0);
   }
 
   .chat-input-box {
     border-radius: var(--radius-lg);
+  }
+
+  .chat-file-status {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .chat-file-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 
   .msg-row {

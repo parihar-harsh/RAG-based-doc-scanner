@@ -1,7 +1,0 @@
-slack
-discord
-vlc
-keka
-iterm2
-visual-studio-code
-

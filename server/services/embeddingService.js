@@ -4,7 +4,7 @@ const EMBEDDING_MODEL = process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-
 const EMBEDDING_DIMENSIONS = parseInt(process.env.GEMINI_EMBEDDING_DIMENSIONS, 10) || null;
 const EMBEDDING_TASK_TYPE = process.env.GEMINI_EMBEDDING_TASK_TYPE || 'RETRIEVAL_DOCUMENT';
 const QUERY_EMBEDDING_TASK_TYPE = process.env.GEMINI_QUERY_EMBEDDING_TASK_TYPE || 'RETRIEVAL_QUERY';
-const BATCH_SIZE = 100; // Gemini supports up to 100 texts per batch
+const DEFAULT_BATCH_SIZE = parseInt(process.env.GEMINI_EMBEDDING_BATCH_SIZE, 10) || 100;
 const MAX_RETRIES = parseInt(process.env.GEMINI_EMBEDDING_RETRIES, 10) || 4;
 const RETRY_BASE_MS = parseInt(process.env.GEMINI_EMBEDDING_RETRY_BASE_MS, 10) || 1500;
 const TRANSIENT_GEMINI_RE = /\b(429|500|502|503|504)\b|high demand|temporarily|unavailable|quota/i;
@@ -86,21 +86,37 @@ async function embedText(text) {
  * This is ~50-100x faster than LangChain's embedDocuments for large batches.
  *
  * @param {string[]} texts
+ * @param {object} [options]
+ * @param {string} [options.taskType]
+ * @param {number} [options.batchSize]
+ * @param {(progress: { completed: number, total: number, batch: number, totalBatches: number }) => Promise<void>|void} [options.onProgress]
  * @returns {Promise<number[][]>}
  */
-async function embedBatch(texts) {
+async function embedBatch(texts, options = {}) {
   if (texts.length === 0) return [];
 
+  const taskType = options.taskType || EMBEDDING_TASK_TYPE;
+  const batchSize = Math.min(Math.max(parseInt(options.batchSize, 10) || DEFAULT_BATCH_SIZE, 1), 100);
+  const totalBatches = Math.ceil(texts.length / batchSize);
   const model = getGenAI().getGenerativeModel({ model: EMBEDDING_MODEL });
   const allEmbeddings = [];
 
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batch = texts.slice(i, i + BATCH_SIZE);
-    const requests = batch.map((text) => buildEmbeddingRequest(text, EMBEDDING_TASK_TYPE));
+  for (let i = 0; i < texts.length; i += batchSize) {
+    const batch = texts.slice(i, i + batchSize);
+    const requests = batch.map((text) => buildEmbeddingRequest(text, taskType));
 
     const result = await withEmbeddingRetry(() => model.batchEmbedContents({ requests }));
     const vectors = result.embeddings.map((e) => e.values);
     allEmbeddings.push(...vectors);
+
+    if (options.onProgress) {
+      await options.onProgress({
+        completed: allEmbeddings.length,
+        total: texts.length,
+        batch: Math.floor(i / batchSize) + 1,
+        totalBatches,
+      });
+    }
   }
 
   return allEmbeddings;

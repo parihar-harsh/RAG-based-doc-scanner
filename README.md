@@ -16,7 +16,10 @@ The app uses React/Vite on the frontend, Express/MongoDB on the backend, Redis/B
 - Semantic chunking with Gemini embeddings and cosine-similarity breakpoints
 - Hybrid retrieval with vector similarity, MongoDB text search, and RRF fusion
 - HyDE query expansion for better retrieval on vague questions
+- Follow-up query rewriting for better retrieval across conversation turns
+- Dynamic retrieval depth based on question type
 - Conversation history restored when switching sessions
+- Selected-session document list with per-document delete and retry controls
 - Docker multi-stage production build with separate API and worker targets
 
 ## Tech Stack
@@ -262,6 +265,7 @@ Legacy single-document chat routes still exist, but the active UI uses session-s
 | `POST` | `/api/documents/upload` | Upload a document; optional `sessionId` form field |
 | `GET` | `/api/documents` | List current user's documents |
 | `GET` | `/api/documents/:id` | Get document details |
+| `POST` | `/api/documents/:id/retry` | Retry processing for one document |
 | `DELETE` | `/api/documents/:id` | Delete one document and its chunks |
 
 ### Chat
@@ -298,13 +302,25 @@ GEMINI_EMBEDDING_TASK_TYPE=RETRIEVAL_DOCUMENT
 GEMINI_QUERY_EMBEDDING_TASK_TYPE=RETRIEVAL_QUERY
 GEMINI_EMBEDDING_RETRIES=4
 GEMINI_EMBEDDING_RETRY_BASE_MS=1500
+GEMINI_EMBEDDING_BATCH_SIZE=100
 GEMINI_CHAT_MODEL=gemini-3.5-flash
 GEMINI_CHAT_FALLBACK_MODELS=gemini-3.1-flash-lite,gemini-2.5-flash
 GEMINI_HYDE_MODEL=gemini-3.1-flash-lite
+GEMINI_QUERY_REWRITE_MODEL=gemini-3.1-flash-lite
 
 # RAG
 SEMANTIC_CHUNK_THRESHOLD_K=1.0
+SEMANTIC_UNIT_TARGET_TOKENS=140
+SEMANTIC_UNIT_MAX_SENTENCES=8
+MAX_CHUNK_TOKENS=800
+MIN_CHUNK_TOKENS=50
+CHUNK_INSERT_BATCH_SIZE=500
 CONVERSATION_MEMORY_LIMIT=10
+RAG_TOP_K_FACTUAL=6
+RAG_TOP_K_DEFAULT=8
+RAG_TOP_K_BROAD=12
+RAG_TOP_K_COMPARE=14
+ENABLE_QUERY_REWRITE=true
 ENABLE_HYDE=true
 ENABLE_HYBRID_SEARCH=true
 ```
@@ -440,11 +456,12 @@ upload
   -> enqueue BullMQ job
   -> parse text from PDF/DOCX/TXT
   -> split into sentences
-  -> embed sentences
+  -> pack sentences into semantic units
+  -> embed semantic units in batches
   -> detect semantic breakpoints by cosine similarity drops
   -> create bounded semantic chunks
-  -> embed final chunks
-  -> store chunks in MongoDB
+  -> embed final chunks in batches
+  -> store chunks in MongoDB in insert batches
   -> mark document ready
 ```
 
@@ -453,10 +470,13 @@ upload
 ```txt
 question
   -> load session conversation memory
-  -> optional HyDE expansion
-  -> embed query
+  -> classify question type
+  -> rewrite follow-up questions into standalone retrieval queries
+  -> optional HyDE expansion for short/definition-style questions
+  -> embed retrieval query
   -> retrieve chunks across all session documents
   -> combine vector + text search with RRF
+  -> choose top-K dynamically by question type
   -> build grounded Gemini prompt
   -> stream answer through SSE
   -> save conversation messages
@@ -466,8 +486,8 @@ question
 
 - Upload max size is 20 MB.
 - Worker concurrency defaults to `1` to avoid exhausting Gemini quota.
-- Semantic chunking embeds sentences, so very large documents can consume a lot of embedding quota.
-- Retrieval currently computes vector similarity in application code over MongoDB chunks. For large deployments, move to MongoDB Atlas Vector Search or another vector index.
+- Semantic chunking embeds sentence groups called semantic units, not every individual sentence. Tune `SEMANTIC_UNIT_TARGET_TOKENS` and `SEMANTIC_UNIT_MAX_SENTENCES` for cost vs. boundary precision.
+- Retrieval currently computes vector similarity in application code with a MongoDB cursor and top-K heap. For very large deployments, move to MongoDB Atlas Vector Search or another vector index.
 - Scanned/image-only PDFs are not OCR-supported yet.
 
 ## Useful Commands

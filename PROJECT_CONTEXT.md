@@ -20,10 +20,13 @@
 - Real-time processing progress relayed through Socket.io
 - Semantic chunking using Gemini embeddings and cosine similarity breakpoints
 - HyDE query expansion
+- Follow-up query rewriting for retrieval
+- Dynamic retrieval depth by question type
 - Hybrid search: vector similarity + MongoDB `$text` + RRF fusion
 - SSE streaming chat responses
 - Structured RAG prompt for direct answers, summaries, comparisons, missing-info handling, and plain-language explanations
 - ChatGPT-style UI with sessions sidebar and default-visible chatbox
+- Selected-session document list with per-document delete/retry controls
 
 ---
 
@@ -67,13 +70,25 @@ GEMINI_EMBEDDING_TASK_TYPE=RETRIEVAL_DOCUMENT
 GEMINI_QUERY_EMBEDDING_TASK_TYPE=RETRIEVAL_QUERY
 GEMINI_EMBEDDING_RETRIES=4
 GEMINI_EMBEDDING_RETRY_BASE_MS=1500
+GEMINI_EMBEDDING_BATCH_SIZE=100
 GEMINI_CHAT_MODEL=gemini-3.5-flash
 GEMINI_CHAT_FALLBACK_MODELS=gemini-3.1-flash-lite,gemini-2.5-flash
 GEMINI_HYDE_MODEL=gemini-3.1-flash-lite
+GEMINI_QUERY_REWRITE_MODEL=gemini-3.1-flash-lite
 
 # RAG
 SEMANTIC_CHUNK_THRESHOLD_K=1.0
+SEMANTIC_UNIT_TARGET_TOKENS=140
+SEMANTIC_UNIT_MAX_SENTENCES=8
+MAX_CHUNK_TOKENS=800
+MIN_CHUNK_TOKENS=50
+CHUNK_INSERT_BATCH_SIZE=500
 CONVERSATION_MEMORY_LIMIT=10
+RAG_TOP_K_FACTUAL=6
+RAG_TOP_K_DEFAULT=8
+RAG_TOP_K_BROAD=12
+RAG_TOP_K_COMPARE=14
+ENABLE_QUERY_REWRITE=true
 ENABLE_HYDE=true
 ENABLE_HYBRID_SEARCH=true
 
@@ -232,10 +247,11 @@ Job reliability:
 ```txt
 raw text
   -> regex sentence split
-  -> embed each sentence with Gemini Embedding 2
-  -> cosine similarity between adjacent sentence embeddings
+  -> pack sentences into semantic units
+  -> embed semantic units with Gemini Embedding 2
+  -> cosine similarity between adjacent semantic unit embeddings
   -> breakpoints where similarity < mean - k * stddev
-  -> group sentences into semantic chunks
+  -> group semantic units into semantic chunks
   -> split chunks over ~800 estimated tokens
   -> merge very small chunks
   -> embed final chunk texts
@@ -251,12 +267,15 @@ POST /api/chat/sessions/:sessionId  (SSE)
   -> load all documents in the session
   -> require at least one document and wait until all session documents are ready
   -> load/create session-scoped conversation
+  -> classify question type
+  -> rewrite follow-up questions using recent conversation memory
   -> optional HyDE with helper model
   -> embed query with RETRIEVAL_QUERY task type
   -> hybrid search:
        vector similarity over chunks from all ready session documents
        MongoDB $text search
        RRF fusion
+       dynamic top-K by question type
   -> Gemini chat generation:
        primary: gemini-3.5-flash
        fallback: gemini-3.1-flash-lite, gemini-2.5-flash
@@ -367,6 +386,7 @@ All require `Authorization: Bearer <token>`.
 | DELETE | `/api/sessions/:id` | Delete session, documents, chunks, conversations, and files |
 | GET | `/api/documents` | Legacy/current user's documents list |
 | GET | `/api/documents/:id` | Get one current-user document |
+| POST | `/api/documents/:id/retry` | Retry processing for one document |
 | DELETE | `/api/documents/:id` | Delete document, chunks, and file; deletes session only if it was the last document |
 
 ### Chat
@@ -447,7 +467,7 @@ What is now suitable:
 Remaining bottleneck:
 
 - The semantic chunker still embeds every sentence before final chunking.
-- Large documents with hundreds/thousands of sentences can still consume many embedding requests.
+- Large documents are cheaper than before because semantic chunking embeds sentence groups, not every single sentence, but they can still consume significant embedding quota.
 - Gemini API quota and model availability remain the limiting factor, especially on free-tier API quota.
 
 Practical assessment:
@@ -463,7 +483,7 @@ Recommended next improvements for large documents:
 1. Add a non-semantic fallback chunker when embedding quota is hit during sentence embedding.
 2. Do coarse section/paragraph chunking before semantic refinement to reduce sentence embedding volume.
 3. Cache embeddings by text hash.
-4. Store `embeddingModel`, `embeddingDimensions`, and `chunkerVersion` on each document/chunk.
+4. Store `embeddingModel`, `embeddingDimensions`, semantic-unit settings, and `chunkerVersion` on each document/chunk.
 5. Add queue rate limiting for Gemini calls.
 6. Add per-user upload/job limits.
 7. Add worker dashboard or queue status endpoint.
@@ -495,4 +515,4 @@ Recommended next improvements for large documents:
    SSE fits one-way streamed chat responses. Socket.io fits real-time processing progress updates.
 
 8. **In-memory vector search for now**  
-   Acceptable for small/medium per-document chunk sets. Revisit if chunks per document or users grow significantly.
+   Current vector search streams chunks with a MongoDB cursor and keeps only top-K in memory. Acceptable for small/medium per-document chunk sets. Revisit with Atlas Vector Search or another vector index if chunks per document or users grow significantly.

@@ -3,7 +3,8 @@ import { useDoc } from '../context/DocContext';
 import useSSE from '../hooks/useSSE';
 import MessageBubble from './MessageBubble';
 import { Spinner } from './Loader';
-import { getSession } from '../services/api';
+import { deleteDocument, getSession, retryDocument } from '../services/api';
+import toast from 'react-hot-toast';
 
 const PHASE_PROGRESS = {
   uploaded: 10,
@@ -32,6 +33,8 @@ export default function ChatWindow({ onUploadClick }) {
     conversationId,
     setConversationId,
     setSelectedDoc,
+    setMessages,
+    fetchDocuments,
     addMessage,
     updateLastMessage,
   } = useDoc();
@@ -39,8 +42,13 @@ export default function ChatWindow({ onUploadClick }) {
   const [input, setInput] = useState('');
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
+  const hasChatMessages = messages.some((msg) => msg.role === 'user' || msg.role === 'assistant');
   const sessionDocuments = selectedDoc?.documents || [];
   const hasDocuments = sessionDocuments.length > 0;
+  const primaryDocument = sessionDocuments.length === 1 ? sessionDocuments[0] : null;
+  const primaryDocumentProcessing = primaryDocument
+    ? ['parsing', 'chunking', 'embedding'].includes(primaryDocument.status)
+    : false;
   const hasError = sessionDocuments.some((doc) => doc.status === 'error') || selectedDoc?.status === 'error';
   const allReady = hasDocuments && sessionDocuments.every((doc) => doc.status === 'ready');
   const canChat = allReady && !hasError;
@@ -155,6 +163,72 @@ export default function ChatWindow({ onUploadClick }) {
     }
   };
 
+  const shouldOpenUploadFromComposer = !canChat && !isStreaming && (!selectedDoc || !hasDocuments);
+
+  const refreshSelectedSession = async () => {
+    if (!selectedDoc?._id) return;
+
+    try {
+      const res = await getSession(selectedDoc._id);
+      setSelectedDoc(res.data);
+    } catch (err) {
+      if (err?.response?.status === 404) {
+        setSelectedDoc(null);
+        setMessages([]);
+        setConversationId(null);
+      } else {
+        throw err;
+      }
+    } finally {
+      await fetchDocuments();
+    }
+  };
+
+  const handleDeleteDocument = async (doc) => {
+    if (hasChatMessages) {
+      toast.error('Documents cannot be deleted after chat has started.');
+      return;
+    }
+
+    const isProcessing = ['parsing', 'chunking', 'embedding'].includes(doc.status);
+    if (isProcessing) {
+      toast.error('Wait for processing to finish before deleting this document.');
+      return;
+    }
+
+    if (!confirm(`Delete "${doc.originalName}" from this session?`)) return;
+
+    try {
+      await deleteDocument(doc._id);
+      toast.success('Document deleted.');
+      await refreshSelectedSession();
+    } catch (err) {
+      toast.error(err?.response?.data?.error || 'Failed to delete document.');
+    }
+  };
+
+  const handleRetryDocument = async (doc) => {
+    try {
+      await retryDocument(doc._id);
+      toast.success('Document queued for retry.');
+      await refreshSelectedSession();
+    } catch (err) {
+      toast.error(err?.response?.data?.error || 'Failed to retry document.');
+    }
+  };
+
+  const handleComposerClick = () => {
+    if (shouldOpenUploadFromComposer) onUploadClick();
+  };
+
+  const handleComposerKeyDown = (e) => {
+    if (!shouldOpenUploadFromComposer) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onUploadClick();
+    }
+  };
+
   return (
     <div className="chat-container">
       {/* Messages area */}
@@ -227,9 +301,97 @@ export default function ChatWindow({ onUploadClick }) {
               <span className="chat-file-name">{statusName}</span>
               <span className="chat-file-meta">{statusLabel}</span>
             </div>
+            {primaryDocument && (primaryDocument.status === 'error' || !hasChatMessages) && (
+              <div className="chat-file-actions">
+                {primaryDocument.status === 'error' && (
+                  <button
+                    className="session-doc-action"
+                    onClick={() => handleRetryDocument(primaryDocument)}
+                    title="Retry processing"
+                  >
+                    Retry
+                  </button>
+                )}
+                {!hasChatMessages && (
+                  <button
+                    className="session-doc-action session-doc-action--danger"
+                    onClick={() => handleDeleteDocument(primaryDocument)}
+                    disabled={primaryDocumentProcessing}
+                    title={primaryDocumentProcessing ? 'Wait for processing to finish' : 'Delete document'}
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
-        <div className="chat-input-box">
+        {sessionDocuments.length > 1 && (
+          <div className="session-doc-list">
+            {sessionDocuments.map((doc) => {
+              const isReady = doc.status === 'ready';
+              const isError = doc.status === 'error';
+              const isProcessing = ['parsing', 'chunking', 'embedding'].includes(doc.status);
+              const statusText = isReady
+                ? `${doc.totalChunks || 0} chunks`
+                : isError
+                  ? 'Failed'
+                  : doc.status === 'uploaded'
+                    ? 'Queued'
+                    : doc.status;
+
+              return (
+                <div key={doc._id} className="session-doc-item">
+                  <span
+                    className={`status-dot ${
+                      isReady
+                        ? 'status-dot--ready'
+                        : isError
+                          ? 'status-dot--error'
+                          : 'status-dot--processing'
+                    }`}
+                  />
+                  <div className="session-doc-details">
+                    <span className="session-doc-name">{doc.originalName}</span>
+                    <span className={`session-doc-status ${isError ? 'session-doc-status--error' : ''}`}>
+                      {statusText}
+                    </span>
+                  </div>
+                  {(isError || !hasChatMessages) && (
+                    <div className="session-doc-actions">
+                      {isError && (
+                        <button
+                          className="session-doc-action"
+                          onClick={() => handleRetryDocument(doc)}
+                          title="Retry processing"
+                        >
+                          Retry
+                        </button>
+                      )}
+                      {!hasChatMessages && (
+                        <button
+                          className="session-doc-action session-doc-action--danger"
+                          onClick={() => handleDeleteDocument(doc)}
+                          disabled={isProcessing}
+                          title={isProcessing ? 'Wait for processing to finish' : 'Delete document'}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div
+          className={`chat-input-box ${shouldOpenUploadFromComposer ? 'chat-input-box--upload-trigger' : ''}`}
+          onClick={handleComposerClick}
+          onKeyDown={handleComposerKeyDown}
+          tabIndex={shouldOpenUploadFromComposer ? 0 : undefined}
+          aria-label={shouldOpenUploadFromComposer ? 'Upload a document to start chatting' : undefined}
+        >
           <button
             className="chat-attach-btn"
             onClick={onUploadClick}

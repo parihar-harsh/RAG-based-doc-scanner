@@ -1,8 +1,10 @@
 const { embedBatch, cosineSimilarity } = require('./embeddingService');
 
 const THRESHOLD_K = parseFloat(process.env.SEMANTIC_CHUNK_THRESHOLD_K) || 1.0;
-const MAX_CHUNK_TOKENS = 800;
-const MIN_CHUNK_TOKENS = 50;
+const MAX_CHUNK_TOKENS = parseInt(process.env.MAX_CHUNK_TOKENS, 10) || 800;
+const MIN_CHUNK_TOKENS = parseInt(process.env.MIN_CHUNK_TOKENS, 10) || 50;
+const SEMANTIC_UNIT_TARGET_TOKENS = parseInt(process.env.SEMANTIC_UNIT_TARGET_TOKENS, 10) || 140;
+const SEMANTIC_UNIT_MAX_SENTENCES = parseInt(process.env.SEMANTIC_UNIT_MAX_SENTENCES, 10) || 8;
 
 /**
  * Rough token count — approximated as word count × 1.3.
@@ -105,26 +107,77 @@ function mergeSmallChunks(groups) {
   return merged;
 }
 
+function createSemanticUnits(sentences) {
+  const units = [];
+  let current = [];
+  let currentTokens = 0;
+  let startSentence = 0;
+
+  for (let i = 0; i < sentences.length; i += 1) {
+    const sentence = sentences[i];
+    const sentenceTokens = estimateTokens(sentence);
+    const shouldFlush =
+      current.length > 0 &&
+      (currentTokens + sentenceTokens > SEMANTIC_UNIT_TARGET_TOKENS ||
+        current.length >= SEMANTIC_UNIT_MAX_SENTENCES);
+
+    if (shouldFlush) {
+      const text = current.join(' ');
+      units.push({
+        text,
+        sentences: current,
+        tokenCount: estimateTokens(text),
+        startSentence,
+        endSentence: i - 1,
+      });
+      current = [];
+      currentTokens = 0;
+      startSentence = i;
+    }
+
+    current.push(sentence);
+    currentTokens += sentenceTokens;
+  }
+
+  if (current.length > 0) {
+    const text = current.join(' ');
+    units.push({
+      text,
+      sentences: current,
+      tokenCount: estimateTokens(text),
+      startSentence,
+      endSentence: sentences.length - 1,
+    });
+  }
+
+  return units;
+}
+
+function flattenUnitGroup(unitGroup) {
+  return unitGroup.flatMap((unit) => unit.sentences);
+}
+
 /**
- * Semantic chunking algorithm using LangChain.js.
+ * Semantic chunking algorithm.
  *
- * 1. Split text into sentences using LangChain's RecursiveCharacterTextSplitter
- * 2. Embed every sentence via LangChain's GoogleGenerativeAIEmbeddings (batched)
- * 3. Compute cosine similarity between adjacent sentence embeddings
+ * 1. Split text into sentences
+ * 2. Pack sentences into semantic units to reduce embedding calls on large docs
+ * 3. Embed semantic units via Gemini batch embeddings
  * 4. threshold = mean - (k * stddev)
- * 5. Breakpoints at indices where similarity < threshold
- * 6. Group sentences between breakpoints into chunks
+ * 5. Breakpoints at unit boundaries where similarity < threshold
+ * 6. Group units into chunks
  * 7. Secondary split chunks > 800 tokens; merge chunks < 50 tokens
  *
  * @param {string} text - Full document text
- * @returns {Promise<{ chunks: { text: string, tokenCount: number, startSentence: number, endSentence: number }[] }>}
+ * @param {object} [options]
+ * @param {(progress: object) => Promise<void>|void} [options.onProgress]
+ * @returns {Promise<{ chunks: { text: string, tokenCount: number, startSentence: number, endSentence: number }[], stats: object }>}
  */
-async function semanticChunk(text) {
-  // Step 1: Split into sentences using LangChain
+async function semanticChunk(text, options = {}) {
   const sentences = splitSentences(text);
 
   if (sentences.length === 0) {
-    return { chunks: [] };
+    return { chunks: [], stats: { sentenceCount: 0, semanticUnitCount: 0 } };
   }
 
   // If very few sentences, return as a single chunk
@@ -139,40 +192,81 @@ async function semanticChunk(text) {
           endSentence: sentences.length - 1,
         },
       ],
+      stats: {
+        sentenceCount: sentences.length,
+        semanticUnitCount: 1,
+      },
     };
   }
 
-  // Step 2: Embed all sentences using LangChain's GoogleGenerativeAIEmbeddings
-  const embeddingVectors = await embedBatch(sentences);
+  const semanticUnits = createSemanticUnits(sentences);
 
-  // Step 3: Compute cosine similarities between adjacent sentences
+  if (options.onProgress) {
+    await options.onProgress({
+      message: `Split into ${sentences.length} sentences and ${semanticUnits.length} semantic units.`,
+      sentenceCount: sentences.length,
+      semanticUnitCount: semanticUnits.length,
+    });
+  }
+
+  if (semanticUnits.length <= 3) {
+    const chunkText = sentences.join(' ');
+    return {
+      chunks: [
+        {
+          text: chunkText,
+          tokenCount: estimateTokens(chunkText),
+          startSentence: 0,
+          endSentence: sentences.length - 1,
+        },
+      ],
+      stats: {
+        sentenceCount: sentences.length,
+        semanticUnitCount: semanticUnits.length,
+      },
+    };
+  }
+
+  const embeddingVectors = await embedBatch(
+    semanticUnits.map((unit) => unit.text),
+    {
+      onProgress: async ({ completed, total }) => {
+        if (options.onProgress) {
+          await options.onProgress({
+            message: `Analyzed ${completed}/${total} semantic units.`,
+            semanticUnitsEmbedded: completed,
+            semanticUnitCount: total,
+          });
+        }
+      },
+    }
+  );
+
   const similarities = [];
   for (let i = 0; i < embeddingVectors.length - 1; i++) {
     similarities.push(cosineSimilarity(embeddingVectors[i], embeddingVectors[i + 1]));
   }
 
-  // Step 4: Compute threshold
   const { mean, stddev } = meanStddev(similarities);
   const threshold = mean - THRESHOLD_K * stddev;
 
-  // Step 5: Find breakpoints — indices where similarity drops below threshold
   const breakpoints = [];
   for (let i = 0; i < similarities.length; i++) {
     if (similarities[i] < threshold) {
-      breakpoints.push(i + 1); // breakpoint is between sentence i and i+1
+      breakpoints.push(i + 1);
     }
   }
 
-  // Step 6: Group sentences between breakpoints
-  let groups = [];
+  let unitGroups = [];
   let start = 0;
   for (const bp of breakpoints) {
-    groups.push(sentences.slice(start, bp));
+    unitGroups.push(semanticUnits.slice(start, bp));
     start = bp;
   }
-  groups.push(sentences.slice(start)); // last group
+  unitGroups.push(semanticUnits.slice(start));
 
-  // Step 7: Secondary split for chunks that are too large
+  let groups = unitGroups.map(flattenUnitGroup);
+
   const splitGroups = [];
   for (const group of groups) {
     const groupText = group.join(' ');
@@ -183,10 +277,8 @@ async function semanticChunk(text) {
     }
   }
 
-  // Step 8: Merge small chunks
   const finalGroups = mergeSmallChunks(splitGroups);
 
-  // Build chunk objects with sentence tracking
   let runningIdx = 0;
   const chunks = [];
 
@@ -204,7 +296,17 @@ async function semanticChunk(text) {
     });
   }
 
-  return { chunks };
+  return {
+    chunks,
+    stats: {
+      sentenceCount: sentences.length,
+      semanticUnitCount: semanticUnits.length,
+      breakpointCount: breakpoints.length,
+      chunkCount: chunks.length,
+      semanticUnitTargetTokens: SEMANTIC_UNIT_TARGET_TOKENS,
+      maxChunkTokens: MAX_CHUNK_TOKENS,
+    },
+  };
 }
 
-module.exports = { semanticChunk, splitSentences, estimateTokens };
+module.exports = { semanticChunk, splitSentences, estimateTokens, createSemanticUnits };

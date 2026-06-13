@@ -1,7 +1,7 @@
 const Chunk = require('../models/Chunk');
 const { embedText, cosineSimilarity } = require('./embeddingService');
 
-const TOP_K = 8;
+const TOP_K = parseInt(process.env.RAG_TOP_K, 10) || 8;
 
 /**
  * Vector search: compute cosine similarity between the query embedding
@@ -19,15 +19,28 @@ function documentCriteria(documentIds) {
 }
 
 async function vectorSearch(documentId, queryEmbedding, limit = TOP_K) {
-  const chunks = await Chunk.find(documentCriteria(documentId)).lean();
+  const top = [];
+  const cursor = Chunk.find(documentCriteria(documentId))
+    .select('documentId chunkIndex text tokenCount embedding startSentence endSentence')
+    .lean()
+    .cursor();
 
-  const scored = chunks.map((chunk) => ({
-    chunk,
-    score: cosineSimilarity(queryEmbedding, chunk.embedding),
-  }));
+  for await (const chunk of cursor) {
+    const item = {
+      chunk,
+      score: cosineSimilarity(queryEmbedding, chunk.embedding),
+    };
 
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, limit);
+    if (top.length < limit) {
+      top.push(item);
+      top.sort((a, b) => a.score - b.score);
+    } else if (item.score > top[0].score) {
+      top[0] = item;
+      top.sort((a, b) => a.score - b.score);
+    }
+  }
+
+  return top.sort((a, b) => b.score - a.score);
 }
 
 /**

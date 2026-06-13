@@ -5,6 +5,7 @@ const {
   uploadDocument,
   listDocuments,
   getDocument,
+  retryDocument,
   deleteDocument,
 } = require('../controllers/documentController');
 
@@ -20,6 +21,9 @@ router.get('/', listDocuments);
 
 // GET /api/documents/:id  — Get document details
 router.get('/:id', getDocument);
+
+// POST /api/documents/:id/retry  — Retry document processing
+router.post('/:id/retry', retryDocument);
 
 // DELETE /api/documents/:id  — Delete a document + chunks + conversations
 router.delete('/:id', deleteDocument);

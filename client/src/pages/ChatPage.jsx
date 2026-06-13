@@ -16,11 +16,12 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="app-layout">
-      {/* Mobile toggle */}
+    <div className={`app-layout ${sidebarOpen ? '' : 'app-layout--sidebar-collapsed'}`}>
       <button
-        className="sidebar-toggle"
+        className={`sidebar-toggle ${sidebarOpen ? 'sidebar-toggle--open' : 'sidebar-toggle--closed'}`}
         onClick={() => setSidebarOpen(!sidebarOpen)}
+        title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+        aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
       >
         {sidebarOpen ? '✕' : '☰'}
       </button>

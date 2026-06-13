@@ -75,6 +75,11 @@ export async function deleteDocument(id) {
   return response.data;
 }
 
+export async function retryDocument(id) {
+  const response = await api.post(`/documents/${id}/retry`);
+  return response.data;
+}
+
 // ── Sessions ──
 
 export async function getSessions() {

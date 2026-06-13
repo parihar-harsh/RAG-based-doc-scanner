@@ -7,7 +7,9 @@ const { extractText } = require('../services/parserService');
 const { semanticChunk } = require('../services/chunkerService');
 const { embedBatch } = require('../services/embeddingService');
 const { emitProgress } = require('../config/socket');
-const { addDocumentProcessingJob } = require('../queues/documentQueue');
+const { addDocumentProcessingJob, retryDocumentProcessingJob } = require('../queues/documentQueue');
+
+const CHUNK_INSERT_BATCH_SIZE = parseInt(process.env.CHUNK_INSERT_BATCH_SIZE, 10) || 500;
 
 /**
  * POST /api/documents/upload
@@ -89,6 +91,8 @@ async function processDocument(documentId, options = {}) {
   if (!doc) return;
 
   try {
+    await Chunk.deleteMany({ documentId: doc._id });
+
     // --- Stage 1: Parsing ---
     doc.status = 'parsing';
     await doc.save();
@@ -133,14 +137,25 @@ async function processDocument(documentId, options = {}) {
       onProgress
     );
 
-    const { chunks } = await semanticChunk(text);
+    const { chunks, stats: chunkingStats = {} } = await semanticChunk(text, {
+      onProgress: (data) => notifyProgress(documentId, 'chunking', data, onProgress),
+    });
+
+    doc.metadata = {
+      ...doc.metadata,
+      sentenceCount: chunkingStats.sentenceCount || null,
+      semanticUnitCount: chunkingStats.semanticUnitCount || null,
+      breakpointCount: chunkingStats.breakpointCount || null,
+    };
+    await doc.save();
 
     await notifyProgress(
       documentId,
       'chunking',
       {
-        message: `Created ${chunks.length} semantic chunks.`,
+        message: `Created ${chunks.length} semantic chunks from ${chunkingStats.semanticUnitCount || 0} semantic units.`,
         chunkCount: chunks.length,
+        semanticUnitCount: chunkingStats.semanticUnitCount,
       },
       onProgress
     );
@@ -151,12 +166,24 @@ async function processDocument(documentId, options = {}) {
     await notifyProgress(
       documentId,
       'embedding',
-      { message: 'Generating embeddings for chunks...' },
+      { message: `Generating embeddings for ${chunks.length} chunks...`, chunkCount: chunks.length },
       onProgress
     );
 
     const chunkTexts = chunks.map((c) => c.text);
-    const embeddings = await embedBatch(chunkTexts);
+    const embeddings = await embedBatch(chunkTexts, {
+      onProgress: ({ completed, total }) =>
+        notifyProgress(
+          documentId,
+          'embedding',
+          {
+            message: `Embedded ${completed}/${total} chunks.`,
+            embeddedChunks: completed,
+            chunkCount: total,
+          },
+          onProgress
+        ),
+    });
 
     // Save chunks to database
     const chunkDocs = chunks.map((chunk, i) => ({
@@ -169,7 +196,10 @@ async function processDocument(documentId, options = {}) {
       endSentence: chunk.endSentence,
     }));
 
-    await Chunk.insertMany(chunkDocs);
+    for (let i = 0; i < chunkDocs.length; i += CHUNK_INSERT_BATCH_SIZE) {
+      const batch = chunkDocs.slice(i, i + CHUNK_INSERT_BATCH_SIZE);
+      await Chunk.insertMany(batch, { ordered: false });
+    }
 
     const totalTokens = chunks.reduce((sum, c) => sum + c.tokenCount, 0);
     doc.totalChunks = chunks.length;
@@ -248,6 +278,84 @@ async function getDocument(req, res, next) {
   }
 }
 
+async function hasChatAfterDocumentUpload(doc, userId) {
+  const scope = doc.sessionId
+    ? [{ sessionId: doc.sessionId }, { documentId: doc._id }]
+    : [{ documentId: doc._id }];
+
+  const exactMessageMatch = await Conversation.exists({
+    userId,
+    $or: scope,
+    messages: {
+      $elemMatch: {
+        createdAt: { $gte: doc.createdAt },
+      },
+    },
+  });
+
+  if (exactMessageMatch) return true;
+
+  const fallbackConversationMatch = await Conversation.exists({
+    userId,
+    $or: scope,
+    updatedAt: { $gte: doc.createdAt },
+    'messages.0': { $exists: true },
+  });
+
+  return Boolean(fallbackConversationMatch);
+}
+
+/**
+ * POST /api/documents/:id/retry
+ * Retry processing for a failed or ready document.
+ */
+async function retryDocument(req, res, next) {
+  try {
+    const doc = await Document.findOne({ _id: req.params.id, userId: req.user.id });
+
+    if (!doc) {
+      return res.status(404).json({ success: false, error: 'Document not found.' });
+    }
+
+    if (['parsing', 'chunking', 'embedding'].includes(doc.status)) {
+      return res.status(409).json({ success: false, error: 'Document is already being processed.' });
+    }
+
+    await Chunk.deleteMany({ documentId: doc._id });
+
+    doc.status = 'uploaded';
+    doc.errorMessage = null;
+    doc.totalChunks = 0;
+    doc.totalTokens = 0;
+    doc.metadata = {
+      ...(doc.metadata || {}),
+      sentenceCount: null,
+      semanticUnitCount: null,
+      breakpointCount: null,
+    };
+    await doc.save();
+
+    await retryDocumentProcessingJob({
+      documentId: doc._id.toString(),
+      userId: req.user.id,
+    });
+
+    emitProgress(doc._id.toString(), 'uploaded', { message: 'Document queued for retry.' });
+
+    res.json({
+      success: true,
+      data: {
+        id: doc._id,
+        sessionId: doc.sessionId,
+        status: doc.status,
+        originalName: doc.originalName,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 /**
  * DELETE /api/documents/:id
  * Delete a document and all its chunks.
@@ -258,6 +366,13 @@ async function deleteDocument(req, res, next) {
 
     if (!doc) {
       return res.status(404).json({ success: false, error: 'Document not found.' });
+    }
+
+    if (await hasChatAfterDocumentUpload(doc, req.user.id)) {
+      return res.status(409).json({
+        success: false,
+        error: 'This document cannot be deleted after chat has started in this session.',
+      });
     }
 
     // Delete associated chunks
@@ -290,4 +405,11 @@ async function deleteDocument(req, res, next) {
   }
 }
 
-module.exports = { uploadDocument, processDocument, listDocuments, getDocument, deleteDocument };
+module.exports = {
+  uploadDocument,
+  processDocument,
+  listDocuments,
+  getDocument,
+  retryDocument,
+  deleteDocument,
+};
