@@ -470,6 +470,8 @@ Render:
   - `GEMINI_API_KEY`
 - Keep `UPLOAD_STORAGE=gridfs` so API and worker do not need shared files.
 
+If Render asks for a paid worker or payment method, use `render-free.yaml` instead. It runs the API and document worker inside one Free web service with `npm run start:all`, plus one Free Render Key Value instance. This is fine for demos and hobby use, but the worker sleeps when the free web service spins down.
+
 Vercel:
 
 - Import the same Git repo.
