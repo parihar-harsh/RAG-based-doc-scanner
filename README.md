@@ -58,7 +58,7 @@ flowchart TB
     Worker[Document processing worker]
   end
 
-  Uploads[(Shared uploads volume)]
+  Uploads[(Upload storage)]
 
   subgraph RedisStore[Redis]
     Queue[BullMQ jobs]
@@ -103,7 +103,7 @@ flowchart TB
   API -->|save chat messages| Conversations
 ```
 
-Redis is only used for BullMQ queue/runtime state: pending jobs, active jobs, retries, failures, and progress. Processed document data, chunks, embeddings, sessions, users, and chat history are persisted in MongoDB. When API and worker run as separate containers, `server/uploads` must be mounted as a shared volume so the worker can read files uploaded by the API container.
+Redis is only used for BullMQ queue/runtime state: pending jobs, active jobs, retries, failures, and progress. Processed document data, chunks, embeddings, sessions, users, and chat history are persisted in MongoDB. Uploaded files can be stored on local disk for development or in MongoDB GridFS for separate API/worker services without a shared filesystem.
 
 ## End-to-End Flow
 
@@ -113,7 +113,7 @@ sequenceDiagram
   actor User
   participant Browser as React app in browser
   participant API as Express API container
-  participant Uploads as Shared uploads volume
+  participant Uploads as Upload storage
   participant Redis as Redis / BullMQ
   participant Worker as Worker container
   participant Mongo as MongoDB
@@ -174,11 +174,11 @@ sequenceDiagram
 4. The user selects an existing session or starts with no selected session.
 5. When the user uploads a document, the browser sends the file to `/api/documents/upload`.
 6. If a session is selected, the uploaded document is attached to that session. If no session is selected, the API creates a new session first.
-7. The API saves the raw file into `server/uploads`. In Docker, this path must be a shared volume between the API and worker containers.
+7. The API saves the raw file into upload storage. Use `UPLOAD_STORAGE=local` for local disk or `UPLOAD_STORAGE=gridfs` for MongoDB GridFS.
 8. The API creates a `Document` record in MongoDB with status `uploaded`.
 9. The API enqueues a BullMQ job in Redis containing the `documentId`.
 10. The worker receives the job from Redis and loads the document metadata from MongoDB.
-11. The worker reads the uploaded file from the shared uploads volume.
+11. The worker reads the uploaded file from upload storage.
 12. The worker extracts text from PDF, DOCX, or TXT.
 13. The worker updates document status to `parsing`, `chunking`, `embedding`, and finally `ready`.
 14. During processing, the worker writes BullMQ job progress to Redis.
@@ -284,14 +284,20 @@ Create `server/.env`:
 
 ```env
 # Server
+NODE_ENV=production
 PORT=5001
-CLIENT_ORIGIN=http://localhost:5173
+SERVE_CLIENT=false
+CLIENT_ORIGIN=https://your-frontend-domain.example
 MONGODB_URI=mongodb+srv://<user>:<pass>@cluster.mongodb.net/talk-to-my-doc
 JWT_SECRET=replace-with-a-long-random-secret
 JWT_EXPIRES_IN=7d
 
+# Upload storage
+# Use gridfs when API and worker run as separate services without a shared disk.
+UPLOAD_STORAGE=gridfs
+
 # Redis / BullMQ
-REDIS_URL=redis://127.0.0.1:6379
+REDIS_URL=redis://<user>:<pass>@<host>:<port>
 DOCUMENT_WORKER_CONCURRENCY=1
 DOCUMENT_JOB_ATTEMPTS=5
 DOCUMENT_JOB_BACKOFF_MS=15000
@@ -327,11 +333,25 @@ ENABLE_HYDE=true
 ENABLE_HYBRID_SEARCH=true
 ```
 
+For separate frontend/backend deployment, set these frontend build variables:
+
+```env
+VITE_API_URL=https://your-backend-domain.example/api
+VITE_SOCKET_URL=https://your-backend-domain.example
+```
+
 For local Vite development, create `client/.env` if needed:
 
 ```env
 VITE_API_URL=http://localhost:5001/api
 VITE_SOCKET_URL=http://localhost:5001
+```
+
+For same-origin Docker/API deployments, keep the Dockerfile defaults:
+
+```env
+VITE_API_URL=/api
+VITE_SOCKET_URL=
 ```
 
 ## Local Development
@@ -393,6 +413,83 @@ Health check:
 curl http://localhost:5001/api/health
 ```
 
+## No-Docker Deployment
+
+For separate frontend and backend hosting, deploy this as three runtime services plus two managed data services:
+
+| Service | Root directory | Build command | Start command |
+| --- | --- | --- | --- |
+| Frontend static site | `client` | `npm ci && npm run build` | publish `dist` |
+| API web service | `server` | `npm ci --omit=dev` | `npm start` |
+| Document worker/background service | `server` | `npm ci --omit=dev` | `npm run worker` |
+| MongoDB | managed service | n/a | use `MONGODB_URI` |
+| Redis | managed service | n/a | use `REDIS_URL` |
+
+Set frontend build environment variables:
+
+```env
+VITE_API_URL=https://your-backend-domain.example/api
+VITE_SOCKET_URL=https://your-backend-domain.example
+```
+
+Set API and worker environment variables from `.env.example`. Important production values:
+
+```env
+NODE_ENV=production
+SERVE_CLIENT=false
+CLIENT_ORIGIN=https://your-frontend-domain.example
+UPLOAD_STORAGE=gridfs
+MONGODB_URI=mongodb+srv://...
+REDIS_URL=redis://...
+GEMINI_API_KEY=...
+JWT_SECRET=...
+```
+
+`UPLOAD_STORAGE=gridfs` is important when the API and worker are different services. The API stores uploaded files in MongoDB GridFS, and the worker reads them from MongoDB, so no shared disk or Docker volume is required.
+
+If you run the API and worker on the same VPS with a shared filesystem, you can use `UPLOAD_STORAGE=local`, but this is not safe on most PaaS deployments because service filesystems are isolated and often ephemeral.
+
+### Vercel Frontend + Render Backend
+
+Recommended setup:
+
+1. Deploy the backend on Render first.
+2. Deploy the frontend on Vercel after you know the Render API URL.
+3. Return to Render and set `CLIENT_ORIGIN` to the final Vercel production URL.
+
+Render:
+
+- Use `render.yaml` from the repo root as a Blueprint.
+- It creates:
+  - `talk-to-my-doc-api` as a Node web service.
+  - `talk-to-my-doc-worker` as a Node background worker.
+  - `talk-to-my-doc-redis` as Render Key Value for BullMQ.
+- Fill dashboard prompts for:
+  - `CLIENT_ORIGIN`: `https://your-vercel-app.vercel.app`
+  - `MONGODB_URI`
+  - `GEMINI_API_KEY`
+- Keep `UPLOAD_STORAGE=gridfs` so API and worker do not need shared files.
+
+Vercel:
+
+- Import the same Git repo.
+- Set project root directory to `client`.
+- Framework preset: Vite.
+- Build command: `npm run build`.
+- Output directory: `dist`.
+- Add environment variables:
+
+```env
+VITE_API_URL=https://your-render-api.onrender.com/api
+VITE_SOCKET_URL=https://your-render-api.onrender.com
+```
+
+After both deploys:
+
+- Open `https://your-render-api.onrender.com/api/health` and confirm it returns healthy JSON.
+- In Vercel, trigger a redeploy after setting `VITE_API_URL` and `VITE_SOCKET_URL`.
+- In Render, confirm the worker logs show `Document worker running`.
+
 ## Docker
 
 The root `Dockerfile` is multi-stage:
@@ -415,7 +512,7 @@ Build the worker image:
 docker build --target worker -t talk-to-my-doc-worker .
 ```
 
-Create the shared upload volume:
+If using `UPLOAD_STORAGE=local`, create the shared upload volume:
 
 ```bash
 docker volume create talk-to-my-doc-uploads
@@ -440,13 +537,15 @@ docker run \
   talk-to-my-doc-worker
 ```
 
+If using `UPLOAD_STORAGE=gridfs`, the upload volume mount is not required because API and worker read/write files through MongoDB GridFS.
+
 If Redis is running on your host machine and the app is inside Docker, set:
 
 ```env
 REDIS_URL=redis://host.docker.internal:6379
 ```
 
-For production, run API and worker as separate containers using the same environment variables and the same upload volume. MongoDB Atlas can remain external.
+For production, run API and worker as separate containers using the same environment variables. MongoDB Atlas and Redis can remain external.
 
 ## RAG Pipeline
 

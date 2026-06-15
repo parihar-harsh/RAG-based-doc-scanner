@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import useSocket from '../hooks/useSocket';
 import toast from 'react-hot-toast';
 
-export default function DocumentList({ onNewSession }) {
+export default function DocumentList({ onNewSession, onUploadClick }) {
   const { documents, selectedDoc, selectDocument, removeDocument } = useDoc();
   const { user, logout } = useAuth();
   const { getDocumentStatus } = useSocket();
@@ -32,7 +32,7 @@ export default function DocumentList({ onNewSession }) {
         {documents.length === 0 ? (
           <div className="sidebar-empty">
             <p>No sessions yet</p>
-            <button className="sidebar-empty-btn" onClick={onNewSession}>
+            <button className="sidebar-empty-btn" onClick={onUploadClick}>
               Start with upload
             </button>
           </div>

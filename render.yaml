@@ -1,0 +1,154 @@
+services:
+  - type: web
+    runtime: node
+    name: talk-to-my-doc-api
+    rootDir: server
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SERVE_CLIENT
+        value: "false"
+      - key: UPLOAD_STORAGE
+        value: gridfs
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: talk-to-my-doc-redis
+          property: connectionString
+      - key: DOCUMENT_WORKER_CONCURRENCY
+        value: "1"
+      - key: DOCUMENT_JOB_ATTEMPTS
+        value: "5"
+      - key: DOCUMENT_JOB_BACKOFF_MS
+        value: "15000"
+      - key: GEMINI_EMBEDDING_MODEL
+        value: gemini-embedding-2
+      - key: GEMINI_EMBEDDING_DIMENSIONS
+        value: "768"
+      - key: GEMINI_EMBEDDING_TASK_TYPE
+        value: RETRIEVAL_DOCUMENT
+      - key: GEMINI_QUERY_EMBEDDING_TASK_TYPE
+        value: RETRIEVAL_QUERY
+      - key: GEMINI_EMBEDDING_RETRIES
+        value: "4"
+      - key: GEMINI_EMBEDDING_RETRY_BASE_MS
+        value: "1500"
+      - key: GEMINI_EMBEDDING_BATCH_SIZE
+        value: "100"
+      - key: GEMINI_CHAT_MODEL
+        value: gemini-3.5-flash
+      - key: GEMINI_CHAT_FALLBACK_MODELS
+        value: gemini-3.1-flash-lite,gemini-2.5-flash
+      - key: GEMINI_HYDE_MODEL
+        value: gemini-3.1-flash-lite
+      - key: GEMINI_QUERY_REWRITE_MODEL
+        value: gemini-3.1-flash-lite
+      - key: SEMANTIC_CHUNK_THRESHOLD_K
+        value: "1.0"
+      - key: SEMANTIC_UNIT_TARGET_TOKENS
+        value: "140"
+      - key: SEMANTIC_UNIT_MAX_SENTENCES
+        value: "8"
+      - key: MAX_CHUNK_TOKENS
+        value: "800"
+      - key: MIN_CHUNK_TOKENS
+        value: "50"
+      - key: CHUNK_INSERT_BATCH_SIZE
+        value: "500"
+      - key: CONVERSATION_MEMORY_LIMIT
+        value: "10"
+      - key: RAG_TOP_K_FACTUAL
+        value: "6"
+      - key: RAG_TOP_K_DEFAULT
+        value: "8"
+      - key: RAG_TOP_K_BROAD
+        value: "12"
+      - key: RAG_TOP_K_COMPARE
+        value: "14"
+      - key: ENABLE_QUERY_REWRITE
+        value: "true"
+      - key: ENABLE_HYDE
+        value: "true"
+      - key: ENABLE_HYBRID_SEARCH
+        value: "true"
+
+  - type: worker
+    runtime: node
+    name: talk-to-my-doc-worker
+    rootDir: server
+    buildCommand: npm ci --omit=dev
+    startCommand: npm run worker
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: UPLOAD_STORAGE
+        value: gridfs
+      - key: MONGODB_URI
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: talk-to-my-doc-redis
+          property: connectionString
+      - key: DOCUMENT_WORKER_CONCURRENCY
+        value: "1"
+      - key: DOCUMENT_JOB_ATTEMPTS
+        value: "5"
+      - key: DOCUMENT_JOB_BACKOFF_MS
+        value: "15000"
+      - key: GEMINI_EMBEDDING_MODEL
+        value: gemini-embedding-2
+      - key: GEMINI_EMBEDDING_DIMENSIONS
+        value: "768"
+      - key: GEMINI_EMBEDDING_TASK_TYPE
+        value: RETRIEVAL_DOCUMENT
+      - key: GEMINI_QUERY_EMBEDDING_TASK_TYPE
+        value: RETRIEVAL_QUERY
+      - key: GEMINI_EMBEDDING_RETRIES
+        value: "4"
+      - key: GEMINI_EMBEDDING_RETRY_BASE_MS
+        value: "1500"
+      - key: GEMINI_EMBEDDING_BATCH_SIZE
+        value: "100"
+      - key: GEMINI_CHAT_MODEL
+        value: gemini-3.5-flash
+      - key: GEMINI_HYDE_MODEL
+        value: gemini-3.1-flash-lite
+      - key: SEMANTIC_CHUNK_THRESHOLD_K
+        value: "1.0"
+      - key: SEMANTIC_UNIT_TARGET_TOKENS
+        value: "140"
+      - key: SEMANTIC_UNIT_MAX_SENTENCES
+        value: "8"
+      - key: MAX_CHUNK_TOKENS
+        value: "800"
+      - key: MIN_CHUNK_TOKENS
+        value: "50"
+      - key: CHUNK_INSERT_BATCH_SIZE
+        value: "500"
+
+  - type: keyvalue
+    name: talk-to-my-doc-redis
+    ipAllowList:
+      - source: 0.0.0.0/0
+        description: allow Render services
+    plan: free
+    maxmemoryPolicy: noeviction
+    persistenceMode: off

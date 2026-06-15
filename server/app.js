@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const rateLimit = require('express-rate-limit');
 const errorHandler = require('./middleware/errorHandler');
+const { getCorsOrigin } = require('./config/cors');
 const authRoutes = require('./routes/authRoutes');
 const documentRoutes = require('./routes/documentRoutes');
 const chatRoutes = require('./routes/chatRoutes');
@@ -16,7 +17,7 @@ const app = express();
 // CORS
 app.use(
   cors({
-    origin: process.env.CLIENT_ORIGIN || '*',
+    origin: getCorsOrigin(),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   })

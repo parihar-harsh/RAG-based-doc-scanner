@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || process.env.AUTH_TOKEN_SECRET || process.env.GEMINI_API_KEY || 'dev-jwt-secret';
+const JWT_SECRET = process.env.JWT_SECRET || process.env.AUTH_TOKEN_SECRET || 'dev-jwt-secret';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 function createToken(user) {

@@ -1,8 +1,8 @@
-const fs = require('fs/promises');
 const Session = require('../models/Session');
 const Document = require('../models/Document');
 const Chunk = require('../models/Chunk');
 const Conversation = require('../models/Conversation');
+const { deleteDocumentFile } = require('../services/fileStorageService');
 
 function getSessionStatus(documents) {
   if (documents.length === 0) return 'empty';
@@ -113,15 +113,7 @@ async function deleteSession(req, res, next) {
     await Chunk.deleteMany({ documentId: { $in: documentIds } });
     await Conversation.deleteMany({ sessionId: session._id, userId: req.user.id });
 
-    await Promise.allSettled(
-      documents.map(async (doc) => {
-        try {
-          await fs.unlink(doc.filePath);
-        } catch (err) {
-          console.warn('Could not delete file from disk:', err.message);
-        }
-      })
-    );
+    await Promise.allSettled(documents.map((doc) => deleteDocumentFile(doc)));
 
     await Document.deleteMany({ sessionId: session._id, userId: req.user.id });
     await Session.findByIdAndDelete(session._id);

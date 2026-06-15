@@ -11,6 +11,9 @@ const ALLOWED_MIMES = {
 };
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
+const USE_GRIDFS_STORAGE =
+  (process.env.UPLOAD_STORAGE || '').toLowerCase() === 'gridfs' ||
+  (!process.env.UPLOAD_STORAGE && process.env.NODE_ENV === 'production');
 
 const storage = multer.diskStorage({
   destination(_req, _file, cb) {
@@ -32,7 +35,7 @@ function fileFilter(_req, file, cb) {
 }
 
 const upload = multer({
-  storage,
+  storage: USE_GRIDFS_STORAGE ? multer.memoryStorage() : storage,
   fileFilter,
   limits: { fileSize: MAX_FILE_SIZE },
 });

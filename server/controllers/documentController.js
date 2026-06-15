@@ -1,9 +1,13 @@
-const fs = require('fs/promises');
 const Document = require('../models/Document');
 const Session = require('../models/Session');
 const Chunk = require('../models/Chunk');
 const Conversation = require('../models/Conversation');
-const { extractText } = require('../services/parserService');
+const { extractTextFromBuffer } = require('../services/parserService');
+const {
+  saveUploadedFile,
+  readDocumentFile,
+  deleteDocumentFile,
+} = require('../services/fileStorageService');
 const { semanticChunk } = require('../services/chunkerService');
 const { embedBatch } = require('../services/embeddingService');
 const { emitProgress } = require('../config/socket');
@@ -21,7 +25,7 @@ async function uploadDocument(req, res, next) {
       return res.status(400).json({ success: false, error: 'No file uploaded.' });
     }
 
-    const { originalname, filename, mimetype, size, path: filePath } = req.file;
+    const { originalname, mimetype, size } = req.file;
     const requestedSessionId = req.body.sessionId || null;
     let session;
 
@@ -37,14 +41,18 @@ async function uploadDocument(req, res, next) {
       });
     }
 
+    const storedFile = await saveUploadedFile(req.file);
+
     const doc = await Document.create({
       userId: req.user.id,
       sessionId: session._id,
       originalName: originalname,
-      fileName: filename,
+      fileName: storedFile.fileName,
+      storageType: storedFile.storageType,
+      storageKey: storedFile.storageKey,
       mimeType: mimetype,
       fileSize: size,
-      filePath,
+      filePath: storedFile.filePath,
       status: 'uploaded',
     });
 
@@ -103,7 +111,8 @@ async function processDocument(documentId, options = {}) {
       onProgress
     );
 
-    const { text, pageCount } = await extractText(doc.filePath);
+    const fileBuffer = await readDocumentFile(doc);
+    const { text, pageCount } = await extractTextFromBuffer(fileBuffer, doc.originalName || doc.fileName);
 
     if (!text || text.trim().length === 0) {
       throw new Error('No text could be extracted from the document.');
@@ -390,12 +399,7 @@ async function deleteDocument(req, res, next) {
       if (doc.sessionId) await Session.findOneAndDelete({ _id: doc.sessionId, userId: req.user.id });
     }
 
-    // Delete the file from disk
-    try {
-      await fs.unlink(doc.filePath);
-    } catch (fileErr) {
-      console.warn('Could not delete file from disk:', fileErr.message);
-    }
+    await deleteDocumentFile(doc);
 
     await Document.findByIdAndDelete(doc._id);
 

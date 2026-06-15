@@ -2,12 +2,15 @@ require('dotenv').config();
 
 const { Worker } = require('bullmq');
 const connectDB = require('./config/db');
+const { validateRuntimeEnv } = require('./config/env');
 const { QUEUE_NAME, createRedisConnection } = require('./queues/documentQueue');
 const { processDocument } = require('./controllers/documentController');
 
 const WORKER_CONCURRENCY = parseInt(process.env.DOCUMENT_WORKER_CONCURRENCY, 10) || 1;
 
 async function startWorker() {
+  validateRuntimeEnv();
+
   await connectDB();
 
   const connection = createRedisConnection();

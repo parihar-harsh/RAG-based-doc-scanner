@@ -41,3 +41,6 @@ CMD ["node", "server.js"]
 
 FROM runner AS worker
 CMD ["node", "worker.js"]
+
+FROM runner AS api
+CMD ["node", "server.js"]

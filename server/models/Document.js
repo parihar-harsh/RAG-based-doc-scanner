@@ -23,6 +23,16 @@ const documentSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    storageType: {
+      type: String,
+      enum: ['local', 'gridfs'],
+      default: 'local',
+      index: true,
+    },
+    storageKey: {
+      type: String,
+      default: null,
+    },
     mimeType: {
       type: String,
       required: true,
@@ -33,7 +43,7 @@ const documentSchema = new mongoose.Schema(
     },
     filePath: {
       type: String,
-      required: true,
+      default: null,
     },
     status: {
       type: String,

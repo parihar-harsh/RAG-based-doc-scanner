@@ -28,7 +28,7 @@ export default function ChatPage() {
 
       {/* Sidebar */}
       <aside className={`app-sidebar ${sidebarOpen ? 'app-sidebar--open' : ''}`}>
-        <DocumentList onNewSession={handleNewSession} />
+        <DocumentList onNewSession={handleNewSession} onUploadClick={() => setShowUpload(true)} />
       </aside>
 
       {/* Main chat */}

@@ -26,6 +26,11 @@ const PHASE_LABELS = {
   error: 'Processing failed',
 };
 
+function toTime(value) {
+  const time = value ? new Date(value).getTime() : NaN;
+  return Number.isFinite(time) ? time : null;
+}
+
 export default function ChatWindow({ onUploadClick }) {
   const {
     selectedDoc,
@@ -44,11 +49,11 @@ export default function ChatWindow({ onUploadClick }) {
   const textareaRef = useRef(null);
   const hasChatMessages = messages.some((msg) => msg.role === 'user' || msg.role === 'assistant');
   const sessionDocuments = selectedDoc?.documents || [];
+  const displayedSessionDocuments = [...sessionDocuments].sort(
+    (a, b) => (toTime(b.createdAt) || 0) - (toTime(a.createdAt) || 0)
+  );
   const hasDocuments = sessionDocuments.length > 0;
   const primaryDocument = sessionDocuments.length === 1 ? sessionDocuments[0] : null;
-  const primaryDocumentProcessing = primaryDocument
-    ? ['parsing', 'chunking', 'embedding'].includes(primaryDocument.status)
-    : false;
   const hasError = sessionDocuments.some((doc) => doc.status === 'error') || selectedDoc?.status === 'error';
   const allReady = hasDocuments && sessionDocuments.every((doc) => doc.status === 'ready');
   const canChat = allReady && !hasError;
@@ -184,9 +189,26 @@ export default function ChatWindow({ onUploadClick }) {
     }
   };
 
+  const hasChatAfterDocumentUpload = (doc) => {
+    const uploadedAt = toTime(doc.createdAt);
+    if (!uploadedAt) return hasChatMessages;
+
+    return messages.some((msg) => {
+      if (msg.role !== 'user' && msg.role !== 'assistant') return false;
+
+      const messageTime = toTime(msg.createdAt);
+      if (!messageTime) return true;
+
+      return messageTime >= uploadedAt;
+    });
+  };
+
+  const isDocumentProcessing = (doc) => ['parsing', 'chunking', 'embedding'].includes(doc.status);
+  const canShowDeleteDocument = (doc) => !hasChatAfterDocumentUpload(doc);
+
   const handleDeleteDocument = async (doc) => {
-    if (hasChatMessages) {
-      toast.error('Documents cannot be deleted after chat has started.');
+    if (hasChatAfterDocumentUpload(doc)) {
+      toast.error('This document cannot be deleted after chat has started for it.');
       return;
     }
 
@@ -279,7 +301,7 @@ export default function ChatWindow({ onUploadClick }) {
 
       {/* Input area */}
       <div className="chat-input-wrapper">
-        {selectedDoc && (
+        {selectedDoc && !hasDocuments && (
           <div
             className={`chat-file-status ${canChat ? 'chat-file-status--ready' : ''} ${
               hasError ? 'chat-file-status--error' : ''
@@ -301,7 +323,7 @@ export default function ChatWindow({ onUploadClick }) {
               <span className="chat-file-name">{statusName}</span>
               <span className="chat-file-meta">{statusLabel}</span>
             </div>
-            {primaryDocument && (primaryDocument.status === 'error' || !hasChatMessages) && (
+            {primaryDocument && (primaryDocument.status === 'error' || canShowDeleteDocument(primaryDocument)) && (
               <div className="chat-file-actions">
                 {primaryDocument.status === 'error' && (
                   <button
@@ -312,12 +334,12 @@ export default function ChatWindow({ onUploadClick }) {
                     Retry
                   </button>
                 )}
-                {!hasChatMessages && (
+                {canShowDeleteDocument(primaryDocument) && (
                   <button
                     className="session-doc-action session-doc-action--danger"
                     onClick={() => handleDeleteDocument(primaryDocument)}
-                    disabled={primaryDocumentProcessing}
-                    title={primaryDocumentProcessing ? 'Wait for processing to finish' : 'Delete document'}
+                    disabled={isDocumentProcessing(primaryDocument)}
+                    title={isDocumentProcessing(primaryDocument) ? 'Wait for processing to finish' : 'Delete document'}
                   >
                     Delete
                   </button>
@@ -326,12 +348,13 @@ export default function ChatWindow({ onUploadClick }) {
             )}
           </div>
         )}
-        {sessionDocuments.length > 1 && (
+        {hasDocuments && (
           <div className="session-doc-list">
-            {sessionDocuments.map((doc) => {
+            {displayedSessionDocuments.map((doc) => {
               const isReady = doc.status === 'ready';
               const isError = doc.status === 'error';
-              const isProcessing = ['parsing', 'chunking', 'embedding'].includes(doc.status);
+              const canShowDelete = canShowDeleteDocument(doc);
+              const isProcessing = isDocumentProcessing(doc);
               const statusText = isReady
                 ? `${doc.totalChunks || 0} chunks`
                 : isError
@@ -357,7 +380,7 @@ export default function ChatWindow({ onUploadClick }) {
                       {statusText}
                     </span>
                   </div>
-                  {(isError || !hasChatMessages) && (
+                  {(isError || canShowDelete) && (
                     <div className="session-doc-actions">
                       {isError && (
                         <button
@@ -368,7 +391,7 @@ export default function ChatWindow({ onUploadClick }) {
                           Retry
                         </button>
                       )}
-                      {!hasChatMessages && (
+                      {canShowDelete && (
                         <button
                           className="session-doc-action session-doc-action--danger"
                           onClick={() => handleDeleteDocument(doc)}

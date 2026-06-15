@@ -1,6 +1,6 @@
 const fs = require('fs/promises');
 const path = require('path');
-const pdfParse = require('pdf-parse');
+const { PDFParse } = require('pdf-parse');
 const mammoth = require('mammoth');
 
 /**
@@ -10,14 +10,20 @@ const mammoth = require('mammoth');
  */
 async function extractText(filePath) {
   const ext = path.extname(filePath).toLowerCase();
+  const buffer = await fs.readFile(filePath);
+  return extractTextFromBuffer(buffer, filePath);
+}
+
+async function extractTextFromBuffer(buffer, fileName) {
+  const ext = path.extname(fileName).toLowerCase();
 
   switch (ext) {
     case '.pdf':
-      return extractPDF(filePath);
+      return extractPDF(buffer);
     case '.docx':
-      return extractDOCX(filePath);
+      return extractDOCX(buffer);
     case '.txt':
-      return extractTXT(filePath);
+      return extractTXT(buffer);
     default:
       throw new Error(`Unsupported file extension: ${ext}`);
   }
@@ -26,20 +32,24 @@ async function extractText(filePath) {
 /**
  * Extract text from a PDF file.
  */
-async function extractPDF(filePath) {
-  const buffer = await fs.readFile(filePath);
-  const data = await pdfParse(buffer);
-  return {
-    text: data.text || '',
-    pageCount: data.numpages || 0,
-  };
+async function extractPDF(buffer) {
+  const parser = new PDFParse({ data: buffer });
+
+  try {
+    const data = await parser.getText();
+    return {
+      text: data.text || '',
+      pageCount: data.total || 0,
+    };
+  } finally {
+    await parser.destroy();
+  }
 }
 
 /**
  * Extract text from a DOCX file.
  */
-async function extractDOCX(filePath) {
-  const buffer = await fs.readFile(filePath);
+async function extractDOCX(buffer) {
   const result = await mammoth.extractRawText({ buffer });
   return {
     text: result.value || '',
@@ -49,9 +59,8 @@ async function extractDOCX(filePath) {
 /**
  * Read text from a plain text file.
  */
-async function extractTXT(filePath) {
-  const text = await fs.readFile(filePath, 'utf-8');
-  return { text };
+async function extractTXT(buffer) {
+  return { text: buffer.toString('utf-8') };
 }
 
-module.exports = { extractText };
+module.exports = { extractText, extractTextFromBuffer };

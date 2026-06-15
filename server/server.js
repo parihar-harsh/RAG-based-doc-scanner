@@ -3,12 +3,15 @@ require('dotenv').config();
 const http = require('http');
 const app = require('./app');
 const connectDB = require('./config/db');
+const { validateRuntimeEnv } = require('./config/env');
 const { initSocket } = require('./config/socket');
 const { startDocumentQueueEventRelay } = require('./queues/documentQueue');
 
 const PORT = process.env.PORT || 5000;
 
 async function start() {
+  validateRuntimeEnv();
+
   // Connect to MongoDB
   await connectDB();
 
