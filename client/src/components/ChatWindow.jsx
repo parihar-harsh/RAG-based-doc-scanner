@@ -20,8 +20,8 @@ const PHASE_LABELS = {
   uploaded: 'Queued for processing',
   uploading: 'Uploading document',
   parsing: 'Parsing document',
-  chunking: 'Building semantic chunks',
-  embedding: 'Generating embeddings',
+  chunking: 'Organizing document',
+  embedding: 'Indexing document',
   ready: 'Ready to chat',
   error: 'Processing failed',
 };
@@ -64,7 +64,7 @@ export default function ChatWindow({ onUploadClick }) {
   const progressPercent = PHASE_PROGRESS[currentPhase] ?? 0;
   const statusLabel = selectedDoc
     ? canChat
-      ? `${PHASE_LABELS.ready} • ${sessionDocuments.length} document${sessionDocuments.length === 1 ? '' : 's'} • ${selectedDoc.totalChunks || 0} chunks`
+      ? `${PHASE_LABELS.ready} • ${sessionDocuments.length} document${sessionDocuments.length === 1 ? '' : 's'}`
       : hasError
         ? PHASE_LABELS.error
         : hasDocuments
@@ -356,7 +356,7 @@ export default function ChatWindow({ onUploadClick }) {
               const canShowDelete = canShowDeleteDocument(doc);
               const isProcessing = isDocumentProcessing(doc);
               const statusText = isReady
-                ? `${doc.totalChunks || 0} chunks`
+                ? 'Indexed'
                 : isError
                   ? 'Failed'
                   : doc.status === 'uploaded'
