@@ -31,6 +31,23 @@ function toTime(value) {
   return Number.isFinite(time) ? time : null;
 }
 
+function formatDocumentMeta(doc) {
+  const pageCount = doc.metadata?.pageCount;
+  if (Number.isFinite(pageCount) && pageCount > 0) {
+    return `${pageCount} page${pageCount === 1 ? '' : 's'}`;
+  }
+
+  const fileSize = doc.fileSize;
+  if (Number.isFinite(fileSize) && fileSize > 0) {
+    if (fileSize < 1024 * 1024) {
+      return `${Math.max(1, Math.round(fileSize / 1024))} KB`;
+    }
+    return `${(fileSize / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return '';
+}
+
 export default function ChatWindow({ onUploadClick }) {
   const {
     selectedDoc,
@@ -356,7 +373,7 @@ export default function ChatWindow({ onUploadClick }) {
               const canShowDelete = canShowDeleteDocument(doc);
               const isProcessing = isDocumentProcessing(doc);
               const statusText = isReady
-                ? 'Indexed'
+                ? formatDocumentMeta(doc)
                 : isError
                   ? 'Failed'
                   : doc.status === 'uploaded'
