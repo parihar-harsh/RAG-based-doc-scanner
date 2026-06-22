@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-export default function SourceCard({ source }) {
+export default function SourceCard({ source, sourceNumber }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -11,7 +11,7 @@ export default function SourceCard({ source }) {
       >
         <span className="source-card-label">
           {source.documentName && `${source.documentName} · `}
-          Chunk #{source.chunkIndex + 1}
+          Source {sourceNumber}
           {source.pageNumber != null && ` · Page ${source.pageNumber}`}
         </span>
         <span className="source-card-toggle">{expanded ? '▾' : '▸'}</span>

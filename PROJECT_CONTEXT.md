@@ -58,14 +58,14 @@
 PORT=5001
 JWT_SECRET=...
 JWT_EXPIRES_IN=7d
-REDIS_URL=redis://127.0.0.1:6379
+REDIS_URL=redis://<host>:<port>
 DOCUMENT_WORKER_CONCURRENCY=1
 DOCUMENT_JOB_ATTEMPTS=5
 DOCUMENT_JOB_BACKOFF_MS=15000
-MONGODB_URI=mongodb+srv://...@cluster0.seoralq.mongodb.net/talk-to-my-doc?appName=Cluster0
+MONGODB_URI=mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/talk-to-my-doc
 
 # Gemini
-GEMINI_API_KEY=AQ.Ab8RN6JzF-...
+GEMINI_API_KEY=<gemini-api-key>
 GEMINI_EMBEDDING_MODEL=gemini-embedding-2
 GEMINI_EMBEDDING_DIMENSIONS=768
 GEMINI_EMBEDDING_TASK_TYPE=RETRIEVAL_DOCUMENT

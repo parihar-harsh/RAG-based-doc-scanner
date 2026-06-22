@@ -25,7 +25,7 @@ export default function MessageBubble({ message }) {
         {!isUser && message.sources && message.sources.length > 0 && (
           <div className="msg-sources">
             {message.sources.map((src, i) => (
-              <SourceCard key={i} source={src} />
+              <SourceCard key={i} source={src} sourceNumber={i + 1} />
             ))}
           </div>
         )}

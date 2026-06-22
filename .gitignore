@@ -7,3 +7,6 @@ uploads/*
 
 # Local smoke-test files
 /demo.txt
+
+# Local deployment secrets
+/render-env.txt

@@ -1,0 +1,26 @@
+  India-focused software/IT job apps and portals:
+  Naukri, LinkedIn Jobs, Indeed India, Foundit, Instahyre, Cutshort, Hirist,
+  IIMJobs, BigShyft, Shine, TimesJobs, Apna, Hirect, Unstop, Internshala,
+  Freshersworld, Firstnaukri, Superset, Wellfound, TopHire, Weekday, Talent500,
+  Uplers, Turing, Flexiple, Truelancer, WorkIndia, and National Career Service.
+
+  Global software/IT job platforms:
+  LinkedIn Jobs, Indeed, Glassdoor, Wellfound, Dice, Otta, Built In, Levels.fyi
+  Jobs, Y Combinator Work at a Startup, HackerRank Jobs, Triplebyte
+  alternatives, Turing, Toptal, Arc.dev, Remote OK, We Work Remotely, FlexJobs,
+  Remotive, JustRemote, Himalayas, NoDesk, Working Nomads, Upwork, Freelancer,
+  Fiverr, Contra, PeoplePerHour, Guru, and AngelList/Wellfound.
+
+  Best platforms for Indian software engineers:
+  Naukri, LinkedIn, Instahyre, Cutshort, Hirist, Wellfound, BigShyft, TopHire,
+  Weekday, Foundit, Indeed, Talent500, Uplers, Turing, and Internshala for
+  internships or fresher roles.
+
+  Best platforms for remote/global software jobs:
+  LinkedIn, Wellfound, Turing, Toptal, Arc.dev, Remote OK, We Work Remotely,
+  FlexJobs, Remotive, Himalayas, JustRemote, Otta, YC Work at a Startup, Upwork,
+  Contra, and Fiverr.
+
+  Also apply directly on company career pages, especially for software roles.
+  Many tech companies use ATS systems like Workday, Greenhouse, Lever, Ashby,
+  SmartRecruiters, iCIMS, BambooHR, Taleo, and Jobvite.
