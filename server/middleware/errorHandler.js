@@ -5,6 +5,14 @@
 function errorHandler(err, _req, res, _next) {
   console.error('🔥 Error:', err);
 
+  // Invalid JSON payloads
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid JSON payload.',
+    });
+  }
+
   // Multer file-size error
   if (err.code === 'LIMIT_FILE_SIZE') {
     return res.status(413).json({
@@ -28,6 +36,14 @@ function errorHandler(err, _req, res, _next) {
       success: false,
       error: 'Validation error',
       details: messages,
+    });
+  }
+
+  // Mongo duplicate key errors
+  if (err.code === 11000) {
+    return res.status(409).json({
+      success: false,
+      error: 'A record already exists with the same unique value.',
     });
   }
 

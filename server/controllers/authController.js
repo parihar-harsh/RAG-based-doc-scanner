@@ -5,8 +5,7 @@ const {
   verifyPassword,
   publicUser,
 } = require('../services/authService');
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const { signupSchema, loginSchema, firstZodMessage } = require('../schemas/authSchemas');
 
 function authResponse(user) {
   return {
@@ -20,22 +19,12 @@ function authResponse(user) {
 
 async function signup(req, res, next) {
   try {
-    const name = String(req.body.name || '').trim();
-    const email = String(req.body.email || '').trim().toLowerCase();
-    const password = String(req.body.password || '');
-
-    if (!name || !email || !password) {
-      return res.status(400).json({ success: false, error: 'Name, email, and password are required.' });
+    const validation = signupSchema.safeParse(req.body || {});
+    if (!validation.success) {
+      return res.status(400).json({ success: false, error: firstZodMessage(validation) });
     }
 
-    if (!EMAIL_RE.test(email)) {
-      return res.status(400).json({ success: false, error: 'Enter a valid email address.' });
-    }
-
-    if (password.length < 8) {
-      return res.status(400).json({ success: false, error: 'Password must be at least 8 characters.' });
-    }
-
+    const { name, email, password } = validation.data;
     const existingUser = await User.findOne({ email }).lean();
     if (existingUser) {
       return res.status(409).json({ success: false, error: 'An account already exists for this email.' });
@@ -49,19 +38,21 @@ async function signup(req, res, next) {
 
     res.status(201).json(authResponse(user));
   } catch (err) {
+    if (err?.code === 11000 && err?.keyPattern?.email) {
+      return res.status(409).json({ success: false, error: 'An account already exists for this email.' });
+    }
     next(err);
   }
 }
 
 async function login(req, res, next) {
   try {
-    const email = String(req.body.email || '').trim().toLowerCase();
-    const password = String(req.body.password || '');
-
-    if (!email || !password) {
-      return res.status(400).json({ success: false, error: 'Email and password are required.' });
+    const validation = loginSchema.safeParse(req.body || {});
+    if (!validation.success) {
+      return res.status(401).json({ success: false, error: 'Invalid email or password.' });
     }
 
+    const { email, password } = validation.data;
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(401).json({ success: false, error: 'Invalid email or password.' });

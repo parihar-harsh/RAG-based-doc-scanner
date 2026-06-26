@@ -4,7 +4,8 @@ const { verifyToken, publicUser } = require('../services/authService');
 async function requireAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization || '';
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    const token = match ? match[1].trim() : null;
 
     if (!token) {
       return res.status(401).json({ success: false, error: 'Authentication required.' });

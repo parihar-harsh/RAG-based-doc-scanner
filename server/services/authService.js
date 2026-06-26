@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.AUTH_TOKEN_SECRET || 'dev-jwt-secret';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const MAX_PASSWORD_LENGTH = 128;
 
 function createToken(user) {
   return jwt.sign(
@@ -32,6 +33,11 @@ function verifyToken(token) {
 
 function hashPassword(password) {
   return new Promise((resolve, reject) => {
+    if (typeof password !== 'string' || password.length > MAX_PASSWORD_LENGTH) {
+      reject(new Error('Invalid password'));
+      return;
+    }
+
     const salt = crypto.randomBytes(16).toString('hex');
     crypto.scrypt(password, salt, 64, (err, derivedKey) => {
       if (err) reject(err);
@@ -42,6 +48,15 @@ function hashPassword(password) {
 
 function verifyPassword(password, storedHash) {
   return new Promise((resolve, reject) => {
+    if (
+      typeof password !== 'string' ||
+      password.length > MAX_PASSWORD_LENGTH ||
+      typeof storedHash !== 'string'
+    ) {
+      resolve(false);
+      return;
+    }
+
     const [salt, key] = storedHash.split(':');
     if (!salt || !key) {
       resolve(false);
