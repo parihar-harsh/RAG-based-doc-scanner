@@ -1,5 +1,16 @@
 const { chat } = require('../services/ragService');
 const Conversation = require('../models/Conversation');
+const { isValidObjectId } = require('../utils/objectId');
+
+const MAX_QUESTION_LENGTH = parseInt(process.env.MAX_QUESTION_LENGTH, 10) || 4000;
+
+function validateId(value, label, res) {
+  if (!isValidObjectId(value)) {
+    res.status(400).json({ success: false, error: `Invalid ${label}.` });
+    return false;
+  }
+  return true;
+}
 
 /**
  * POST /api/chat/:documentId
@@ -37,8 +48,30 @@ async function chatWithSession(req, res, next) {
 }
 
 async function streamChatResponse({ req, res, question, conversationId, chatParams }) {
-  if (!question || typeof question !== 'string' || question.trim().length === 0) {
+  const trimmedQuestion = typeof question === 'string' ? question.trim() : '';
+
+  if (!trimmedQuestion) {
     return res.status(400).json({ success: false, error: 'Question is required.' });
+  }
+
+  if (trimmedQuestion.length > MAX_QUESTION_LENGTH) {
+    return res.status(413).json({
+      success: false,
+      error: `Question is too long. Maximum length is ${MAX_QUESTION_LENGTH} characters.`,
+    });
+  }
+
+  if (chatParams.documentId && !validateId(chatParams.documentId, 'document ID', res)) return;
+  if (chatParams.sessionId && !validateId(chatParams.sessionId, 'session ID', res)) return;
+
+  let normalizedConversationId = null;
+  if (conversationId != null && conversationId !== '') {
+    if (typeof conversationId !== 'string') {
+      return res.status(400).json({ success: false, error: 'Invalid conversation ID.' });
+    }
+
+    normalizedConversationId = conversationId.trim();
+    if (normalizedConversationId && !validateId(normalizedConversationId, 'conversation ID', res)) return;
   }
 
   // Set up SSE headers
@@ -61,8 +94,8 @@ async function streamChatResponse({ req, res, question, conversationId, chatPara
   try {
     const result = await chat({
       userId: req.user.id,
-      conversationId: conversationId || null,
-      question: question.trim(),
+      conversationId: normalizedConversationId || null,
+      question: trimmedQuestion,
       ...chatParams,
       onChunk(text) {
         if (isClientConnected) {
@@ -104,6 +137,7 @@ async function streamChatResponse({ req, res, question, conversationId, chatPara
 async function listConversations(req, res, next) {
   try {
     const { documentId } = req.params;
+    if (!validateId(documentId, 'document ID', res)) return;
 
     const conversations = await Conversation.find({ documentId, userId: req.user.id })
       .sort({ updatedAt: -1 })
@@ -119,6 +153,7 @@ async function listConversations(req, res, next) {
 async function listSessionConversations(req, res, next) {
   try {
     const { sessionId } = req.params;
+    if (!validateId(sessionId, 'session ID', res)) return;
 
     const conversations = await Conversation.find({ sessionId, userId: req.user.id })
       .sort({ updatedAt: -1 })
@@ -137,6 +172,8 @@ async function listSessionConversations(req, res, next) {
  */
 async function getConversation(req, res, next) {
   try {
+    if (!validateId(req.params.conversationId, 'conversation ID', res)) return;
+
     const conversation = await Conversation.findOne({
       _id: req.params.conversationId,
       userId: req.user.id,
@@ -160,6 +197,8 @@ async function getConversation(req, res, next) {
  */
 async function deleteConversation(req, res, next) {
   try {
+    if (!validateId(req.params.conversationId, 'conversation ID', res)) return;
+
     const result = await Conversation.findOneAndDelete({
       _id: req.params.conversationId,
       userId: req.user.id,

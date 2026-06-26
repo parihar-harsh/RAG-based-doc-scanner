@@ -296,6 +296,10 @@ async function chat({ documentId, sessionId, userId, conversationId, question, o
     }))
   );
 
+  if (searchResults.length === 0) {
+    throw new Error('This document has no searchable content yet. Retry processing or upload a different file.');
+  }
+
   // 8. Build prompt
   const { systemInstruction, contents } = buildPrompt({
     question,
@@ -344,10 +348,18 @@ async function chat({ documentId, sessionId, userId, conversationId, question, o
     throw lastGenerationError;
   }
 
+  if (!fullResponse.trim()) {
+    throw new Error('The model returned an empty response. Please try again.');
+  }
+
   // 10. Save messages to conversation
   conversation.messages.push({ role: 'user', content: question });
   conversation.messages.push({ role: 'assistant', content: fullResponse });
   await conversation.save();
+
+  if (sessionId) {
+    await Session.findOneAndUpdate({ _id: sessionId, userId }, { $set: { updatedAt: new Date() } });
+  }
 
   if (onDone) onDone(fullResponse);
 

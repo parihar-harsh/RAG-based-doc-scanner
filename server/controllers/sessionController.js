@@ -3,6 +3,7 @@ const Document = require('../models/Document');
 const Chunk = require('../models/Chunk');
 const Conversation = require('../models/Conversation');
 const { deleteDocumentFile } = require('../services/fileStorageService');
+const { isValidObjectId } = require('../utils/objectId');
 
 function getSessionStatus(documents) {
   if (documents.length === 0) return 'empty';
@@ -70,6 +71,10 @@ async function listSessions(req, res, next) {
 
 async function getSession(req, res, next) {
   try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, error: 'Invalid session ID.' });
+    }
+
     const session = await Session.findOne({ _id: req.params.id, userId: req.user.id }).lean();
 
     if (!session) {
@@ -84,8 +89,8 @@ async function getSession(req, res, next) {
 
 async function createSession(req, res, next) {
   try {
-    const title = typeof req.body.title === 'string' && req.body.title.trim()
-      ? req.body.title.trim().slice(0, 120)
+    const title = typeof req.body?.title === 'string' && req.body.title.trim()
+      ? req.body.title.trim().replace(/\s+/g, ' ').slice(0, 120)
       : 'New Session';
 
     const session = await Session.create({
@@ -101,6 +106,10 @@ async function createSession(req, res, next) {
 
 async function deleteSession(req, res, next) {
   try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, error: 'Invalid session ID.' });
+    }
+
     const session = await Session.findOne({ _id: req.params.id, userId: req.user.id });
 
     if (!session) {

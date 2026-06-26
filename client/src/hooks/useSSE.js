@@ -1,6 +1,8 @@
 import { useState, useCallback, useRef } from 'react';
 import { getAuthToken } from '../services/api';
 
+const MAX_QUESTION_LENGTH = 4000;
+
 export default function useSSE() {
   const [streamedText, setStreamedText] = useState('');
   const [sources, setSources] = useState([]);
@@ -9,6 +11,13 @@ export default function useSSE() {
   const abortRef = useRef(null);
 
   const startStream = useCallback(async (sessionId, question, conversationId) => {
+    const trimmedQuestion = typeof question === 'string' ? question.trim() : '';
+    if (!sessionId) throw new Error('Select a session before asking a question.');
+    if (!trimmedQuestion) throw new Error('Question is required.');
+    if (trimmedQuestion.length > MAX_QUESTION_LENGTH) {
+      throw new Error(`Question is too long. Maximum length is ${MAX_QUESTION_LENGTH} characters.`);
+    }
+
     setStreamedText('');
     setSources([]);
     setError(null);
@@ -26,7 +35,7 @@ export default function useSSE() {
             'Content-Type': 'application/json',
             ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
           },
-          body: JSON.stringify({ question, conversationId }),
+          body: JSON.stringify({ question: trimmedQuestion, conversationId }),
           signal: abortController.signal,
         }
       );
@@ -36,12 +45,17 @@ export default function useSSE() {
         throw new Error(errData.error || `Server error: ${response.status}`);
       }
 
+      if (!response.body) {
+        throw new Error('Streaming is not supported by this browser response.');
+      }
+
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       let fullText = '';
       let finalSources = [];
       let finalConversationId = null;
+      let streamError = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -73,7 +87,8 @@ export default function useSSE() {
                 setIsStreaming(false);
                 break;
               case 'error':
-                setError(parsed.message || 'Stream error');
+                streamError = parsed.message || 'Stream error';
+                setError(streamError);
                 setIsStreaming(false);
                 break;
               default:
@@ -90,6 +105,10 @@ export default function useSSE() {
       }
 
       setIsStreaming(false);
+      if (streamError) {
+        throw new Error(streamError);
+      }
+
       return {
         text: fullText,
         sources: finalSources,

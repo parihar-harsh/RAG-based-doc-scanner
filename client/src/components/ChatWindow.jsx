@@ -26,6 +26,8 @@ const PHASE_LABELS = {
   error: 'Processing failed',
 };
 
+const MAX_QUESTION_LENGTH = 4000;
+
 function toTime(value) {
   const time = value ? new Date(value).getTime() : NaN;
   return Number.isFinite(time) ? time : null;
@@ -156,8 +158,13 @@ export default function ChatWindow({ onUploadClick }) {
   }, [selectedDoc?._id, canChat, hasError, setSelectedDoc]);
 
   const handleSend = async (question) => {
-    const q = question || input.trim();
+    const q = (typeof question === 'string' ? question : input).trim();
     if (!q || !canChat || isStreaming) return;
+
+    if (q.length > MAX_QUESTION_LENGTH) {
+      toast.error(`Question is too long. Maximum length is ${MAX_QUESTION_LENGTH} characters.`);
+      return;
+    }
 
     setInput('');
 
@@ -447,9 +454,10 @@ export default function ChatWindow({ onUploadClick }) {
             className="chat-textarea"
             placeholder={canChat ? 'Ask a question...' : 'Push doc first'}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => setInput(e.target.value.slice(0, MAX_QUESTION_LENGTH))}
             onKeyDown={handleKeyDown}
             rows={1}
+            maxLength={MAX_QUESTION_LENGTH}
             disabled={!canChat || isStreaming}
           />
           <button

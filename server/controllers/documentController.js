@@ -12,38 +12,67 @@ const { semanticChunk } = require('../services/chunkerService');
 const { embedBatch } = require('../services/embeddingService');
 const { emitProgress } = require('../config/socket');
 const { addDocumentProcessingJob, retryDocumentProcessingJob } = require('../queues/documentQueue');
+const { isValidObjectId } = require('../utils/objectId');
 
 const CHUNK_INSERT_BATCH_SIZE = parseInt(process.env.CHUNK_INSERT_BATCH_SIZE, 10) || 500;
+const PROCESSING_STATUSES = ['uploaded', 'parsing', 'chunking', 'embedding'];
+
+async function cleanupRejectedUpload(file) {
+  if (!file?.path) return;
+  await deleteDocumentFile({ storageType: 'local', filePath: file.path }).catch((err) =>
+    console.warn('Could not clean up rejected upload:', err.message)
+  );
+}
 
 /**
  * POST /api/documents/upload
  * Upload a document and trigger async processing.
  */
 async function uploadDocument(req, res, next) {
+  let storedFile = null;
+  let createdSession = null;
+  let createdDoc = null;
+
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'No file uploaded.' });
     }
 
     const { originalname, mimetype, size } = req.file;
-    const requestedSessionId = req.body.sessionId || null;
+    if (!Number.isFinite(size) || size <= 0) {
+      await cleanupRejectedUpload(req.file);
+      return res.status(400).json({ success: false, error: 'Uploaded file is empty.' });
+    }
+
+    const requestedSessionId = typeof req.body.sessionId === 'string' && req.body.sessionId.trim()
+      ? req.body.sessionId.trim()
+      : null;
     let session;
 
     if (requestedSessionId) {
+      if (!isValidObjectId(requestedSessionId)) {
+        await cleanupRejectedUpload(req.file);
+        return res.status(400).json({ success: false, error: 'Invalid session ID.' });
+      }
+
       session = await Session.findOne({ _id: requestedSessionId, userId: req.user.id });
       if (!session) {
+        await cleanupRejectedUpload(req.file);
         return res.status(404).json({ success: false, error: 'Session not found.' });
       }
-    } else {
+    }
+
+    storedFile = await saveUploadedFile(req.file);
+
+    if (!session) {
       session = await Session.create({
         userId: req.user.id,
         title: originalname,
       });
+      createdSession = session;
     }
 
-    const storedFile = await saveUploadedFile(req.file);
-
-    const doc = await Document.create({
+    createdDoc = await Document.create({
       userId: req.user.id,
       sessionId: session._id,
       originalName: originalname,
@@ -60,21 +89,41 @@ async function uploadDocument(req, res, next) {
     await session.save();
 
     await addDocumentProcessingJob({
-      documentId: doc._id.toString(),
+      documentId: createdDoc._id.toString(),
       userId: req.user.id,
     });
 
     res.status(201).json({
       success: true,
       data: {
-        id: doc._id,
+        id: createdDoc._id,
         sessionId: session._id,
-        originalName: doc.originalName,
-        status: doc.status,
-        fileSize: doc.fileSize,
+        originalName: createdDoc.originalName,
+        status: createdDoc.status,
+        fileSize: createdDoc.fileSize,
       },
     });
   } catch (err) {
+    if (storedFile && !createdDoc) {
+      await deleteDocumentFile(storedFile).catch((cleanupErr) =>
+        console.warn('Could not clean up uploaded file after failed upload:', cleanupErr.message)
+      );
+    }
+
+    if (createdDoc) {
+      createdDoc.status = 'error';
+      createdDoc.errorMessage = 'Document was uploaded but could not be queued for processing.';
+      await createdDoc.save().catch((saveErr) =>
+        console.warn('Could not mark failed upload document:', saveErr.message)
+      );
+    }
+
+    if (createdSession && !createdDoc) {
+      await Session.findByIdAndDelete(createdSession._id).catch((cleanupErr) =>
+        console.warn('Could not clean up empty session after failed upload:', cleanupErr.message)
+      );
+    }
+
     next(err);
   }
 }
@@ -95,6 +144,11 @@ async function notifyProgress(documentId, phase, data, onProgress) {
  */
 async function processDocument(documentId, options = {}) {
   const { onProgress = null, throwOnError = false } = options;
+  if (!isValidObjectId(documentId)) {
+    if (throwOnError) throw new Error('Invalid document ID.');
+    return;
+  }
+
   const doc = await Document.findById(documentId);
   if (!doc) return;
 
@@ -103,6 +157,9 @@ async function processDocument(documentId, options = {}) {
 
     // --- Stage 1: Parsing ---
     doc.status = 'parsing';
+    doc.errorMessage = null;
+    doc.totalChunks = 0;
+    doc.totalTokens = 0;
     await doc.save();
     await notifyProgress(
       documentId,
@@ -150,6 +207,10 @@ async function processDocument(documentId, options = {}) {
       onProgress: (data) => notifyProgress(documentId, 'chunking', data, onProgress),
     });
 
+    if (!Array.isArray(chunks) || chunks.length === 0) {
+      throw new Error('No searchable text chunks could be created from the document.');
+    }
+
     doc.metadata = {
       ...doc.metadata,
       sentenceCount: chunkingStats.sentenceCount || null,
@@ -193,6 +254,10 @@ async function processDocument(documentId, options = {}) {
           onProgress
         ),
     });
+
+    if (!Array.isArray(embeddings) || embeddings.length !== chunks.length) {
+      throw new Error('Embedding generation returned an unexpected number of vectors.');
+    }
 
     // Save chunks to database
     const chunkDocs = chunks.map((chunk, i) => ({
@@ -273,6 +338,10 @@ async function listDocuments(req, res, next) {
  */
 async function getDocument(req, res, next) {
   try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, error: 'Invalid document ID.' });
+    }
+
     const doc = await Document.findOne({ _id: req.params.id, userId: req.user.id })
       .select('-__v')
       .lean();
@@ -320,13 +389,17 @@ async function hasChatAfterDocumentUpload(doc, userId) {
  */
 async function retryDocument(req, res, next) {
   try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, error: 'Invalid document ID.' });
+    }
+
     const doc = await Document.findOne({ _id: req.params.id, userId: req.user.id });
 
     if (!doc) {
       return res.status(404).json({ success: false, error: 'Document not found.' });
     }
 
-    if (['parsing', 'chunking', 'embedding'].includes(doc.status)) {
+    if (PROCESSING_STATUSES.includes(doc.status)) {
       return res.status(409).json({ success: false, error: 'Document is already being processed.' });
     }
 
@@ -371,6 +444,10 @@ async function retryDocument(req, res, next) {
  */
 async function deleteDocument(req, res, next) {
   try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, error: 'Invalid document ID.' });
+    }
+
     const doc = await Document.findOne({ _id: req.params.id, userId: req.user.id });
 
     if (!doc) {
