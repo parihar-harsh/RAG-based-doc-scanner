@@ -7,8 +7,10 @@ The app uses React/Vite on the frontend, Express/MongoDB on the backend, Redis/B
 ## Features
 
 - Login, signup, logout, and JWT bearer-token protected API routes
+- Zod-backed signup/signin validation with normalized email/name input
 - Multi-document chat sessions
 - PDF, DOCX, and TXT uploads
+- Client and server upload validation for file type, empty files, and 20 MB max size
 - Persistent Redis/BullMQ document-processing queue
 - Separate worker process for parsing, semantic chunking, and embeddings
 - Real-time document processing updates through Socket.io
@@ -20,6 +22,7 @@ The app uses React/Vite on the frontend, Express/MongoDB on the backend, Redis/B
 - Dynamic retrieval depth based on question type
 - Conversation history restored when switching sessions
 - Selected-session document list with per-document delete and retry controls
+- Guardrails for invalid IDs, duplicate processing retries, empty retrieval results, and too-long questions
 - Docker multi-stage production build with separate API and worker targets
 
 ## Tech Stack
@@ -31,7 +34,7 @@ The app uses React/Vite on the frontend, Express/MongoDB on the backend, Redis/B
 | Database | MongoDB Atlas, Mongoose |
 | Queue | Redis, BullMQ |
 | Realtime | Socket.io, SSE |
-| Auth | JWT bearer tokens, hashed passwords |
+| Auth | JWT bearer tokens, hashed passwords, Zod validation |
 | AI | Google Gemini API |
 | Embeddings | `gemini-embedding-2` |
 | Chat | `gemini-3.5-flash` with fallback models |
@@ -222,7 +225,9 @@ talk-to-my-doc/
     ├── models/
     ├── queues/
     ├── routes/
+    ├── schemas/
     ├── services/
+    ├── utils/
     └── package.json
 ```
 
@@ -246,6 +251,7 @@ Legacy single-document chat routes still exist, but the active UI uses session-s
 | --- | --- | --- |
 | `POST` | `/api/auth/signup` | Create account |
 | `POST` | `/api/auth/login` | Login |
+| `POST` | `/api/auth/signin` | Login alias |
 | `GET` | `/api/auth/me` | Current user |
 | `POST` | `/api/auth/logout` | Logout |
 
@@ -277,6 +283,38 @@ Legacy single-document chat routes still exist, but the active UI uses session-s
 | `GET` | `/api/chat/conversations/:conversationId` | Get conversation history |
 | `DELETE` | `/api/chat/conversations/:conversationId` | Delete conversation |
 | `POST` | `/api/chat/:documentId` | Legacy single-document chat |
+
+## Validation and Edge Cases
+
+### Auth
+
+- Signup and signin use shared Zod rules on the frontend and backend.
+- Names are trimmed, internal whitespace is collapsed, and length is limited.
+- Emails are trimmed and lowercased before storage/login.
+- Passwords must be 8-128 characters and include at least one letter and one number.
+- Login failures return a generic invalid-credentials message.
+- Duplicate email races are returned as `409`.
+- Bearer tokens are parsed case-insensitively and extra spaces are tolerated.
+
+### Uploads and Processing
+
+- Supported uploads: PDF, DOCX, TXT.
+- Maximum upload size: 20 MB.
+- Empty files are rejected.
+- Invalid or missing `sessionId` values return clean `400` or `404` responses.
+- Rejected local uploads are cleaned up so failed requests do not leave orphan files.
+- Processing clears stale errors and chunk counts before retrying.
+- Retry is blocked while a document is already queued or processing.
+- Processing fails clearly if no text, no chunks, or mismatched embeddings are produced.
+- Deleting a document is blocked after chat has started for that document/session.
+
+### Chat
+
+- Chat requires a valid document/session/conversation ID before SSE starts.
+- Question text is trimmed and limited by `MAX_QUESTION_LENGTH`, default `4000`.
+- Empty questions are rejected.
+- If retrieval finds no chunks or the model returns no text, the API returns a clear stream error.
+- The frontend converts SSE errors into a completed failed assistant message instead of leaving the message loading.
 
 ## Environment Variables
 
@@ -331,6 +369,7 @@ RAG_TOP_K_COMPARE=14
 ENABLE_QUERY_REWRITE=true
 ENABLE_HYDE=true
 ENABLE_HYBRID_SEARCH=true
+MAX_QUESTION_LENGTH=4000
 ```
 
 For separate frontend/backend deployment, set these frontend build variables:
@@ -588,10 +627,12 @@ question
 ## Current Limits
 
 - Upload max size is 20 MB.
+- Chat question max length defaults to 4000 characters.
 - Worker concurrency defaults to `1` to avoid exhausting Gemini quota.
 - Semantic chunking embeds sentence groups called semantic units, not every individual sentence. Tune `SEMANTIC_UNIT_TARGET_TOKENS` and `SEMANTIC_UNIT_MAX_SENTENCES` for cost vs. boundary precision.
 - Retrieval currently computes vector similarity in application code with a MongoDB cursor and top-K heap. For very large deployments, move to MongoDB Atlas Vector Search or another vector index.
 - Scanned/image-only PDFs are not OCR-supported yet.
+- API and worker should use `UPLOAD_STORAGE=gridfs` when deployed as separate services.
 
 ## Useful Commands
 
