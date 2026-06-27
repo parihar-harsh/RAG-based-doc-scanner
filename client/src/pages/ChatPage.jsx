@@ -7,13 +7,20 @@ import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 export default function ChatPage() {
   const [showUpload, setShowUpload] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => typeof window === 'undefined' || window.innerWidth > 768
+  );
   const { setSelectedDoc, setMessages, setConversationId } = useDoc();
 
   const handleNewSession = () => {
     setSelectedDoc(null);
     setMessages([]);
     setConversationId(null);
+    if (window.innerWidth <= 768) setSidebarOpen(false);
+  };
+
+  const closeMobileSidebar = () => {
+    if (window.innerWidth <= 768) setSidebarOpen(false);
   };
 
   return (
@@ -29,8 +36,20 @@ export default function ChatPage() {
 
       {/* Sidebar */}
       <aside className={`app-sidebar ${sidebarOpen ? 'app-sidebar--open' : ''}`}>
-        <DocumentList onNewSession={handleNewSession} onUploadClick={() => setShowUpload(true)} />
+        <DocumentList
+          onNewSession={handleNewSession}
+          onUploadClick={() => setShowUpload(true)}
+          onSessionSelected={closeMobileSidebar}
+        />
       </aside>
+      {sidebarOpen && (
+        <button
+          type="button"
+          className="sidebar-backdrop"
+          onClick={() => setSidebarOpen(false)}
+          aria-label="Close session sidebar"
+        />
+      )}
 
       {/* Main chat */}
       <main className="app-main">

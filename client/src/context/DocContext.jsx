@@ -5,6 +5,7 @@ import {
   listSessionConversations,
   getConversation,
   deleteSession as apiDeleteSession,
+  updateSession as apiUpdateSession,
 } from '../services/api';
 
 const DocContext = createContext(null);
@@ -59,8 +60,17 @@ export function DocProvider({ children }) {
       }
     } catch (err) {
       console.error('Failed to delete document:', err);
+      throw err;
     }
   }, [selectedDoc]);
+
+  const renameSession = useCallback(async (sessionId, title) => {
+    const res = await apiUpdateSession(sessionId, { title });
+    const updated = res.data;
+    setDocuments((prev) => prev.map((session) => (session._id === sessionId ? updated : session)));
+    setSelectedDoc((prev) => (prev?._id === sessionId ? updated : prev));
+    return updated;
+  }, []);
 
   const addMessage = useCallback((msg) => {
     setMessages((prev) => [...prev, msg]);
@@ -95,6 +105,7 @@ export function DocProvider({ children }) {
         fetchDocuments,
         selectDocument,
         removeDocument,
+        renameSession,
         addMessage,
         updateLastMessage,
       }}

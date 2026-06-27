@@ -16,6 +16,43 @@ const { isValidObjectId } = require('../utils/objectId');
 
 const CHUNK_INSERT_BATCH_SIZE = parseInt(process.env.CHUNK_INSERT_BATCH_SIZE, 10) || 500;
 const PROCESSING_STATUSES = ['uploaded', 'parsing', 'chunking', 'embedding'];
+const PREVIEW_TEXT_LIMIT = 30000;
+
+function normalizePreviewText(value = '') {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function addPageMetadata(chunks, pages = []) {
+  if (!Array.isArray(pages) || pages.length === 0) return chunks;
+
+  let combinedText = '';
+  const ranges = pages.map((page) => {
+    const pageText = normalizePreviewText(page.text);
+    const start = combinedText.length;
+    combinedText += `${combinedText ? ' ' : ''}${pageText}`;
+    const end = combinedText.length;
+    return { pageNumber: page.pageNumber, start, end };
+  });
+
+  let cursor = 0;
+  return chunks.map((chunk) => {
+    const normalizedChunk = normalizePreviewText(chunk.text);
+    const searchText = normalizedChunk.slice(0, Math.min(normalizedChunk.length, 120));
+    const start = searchText ? combinedText.indexOf(searchText, cursor) : -1;
+    if (start < 0) return chunk;
+
+    const end = start + normalizedChunk.length;
+    cursor = start + searchText.length;
+    const startPage = ranges.find((range) => start <= range.end && end >= range.start);
+    const endPage = [...ranges].reverse().find((range) => start <= range.end && end >= range.start);
+
+    return {
+      ...chunk,
+      pageNumber: startPage?.pageNumber || null,
+      endPageNumber: endPage?.pageNumber || startPage?.pageNumber || null,
+    };
+  });
+}
 
 async function cleanupRejectedUpload(file) {
   if (!file?.path) return;
@@ -169,7 +206,10 @@ async function processDocument(documentId, options = {}) {
     );
 
     const fileBuffer = await readDocumentFile(doc);
-    const { text, pageCount } = await extractTextFromBuffer(fileBuffer, doc.originalName || doc.fileName);
+    const { text, pageCount, pages } = await extractTextFromBuffer(
+      fileBuffer,
+      doc.originalName || doc.fileName
+    );
 
     if (!text || text.trim().length === 0) {
       throw new Error('No text could be extracted from the document.');
@@ -260,7 +300,8 @@ async function processDocument(documentId, options = {}) {
     }
 
     // Save chunks to database
-    const chunkDocs = chunks.map((chunk, i) => ({
+    const chunksWithPages = addPageMetadata(chunks, pages);
+    const chunkDocs = chunksWithPages.map((chunk, i) => ({
       documentId: doc._id,
       chunkIndex: i,
       text: chunk.text,
@@ -268,6 +309,8 @@ async function processDocument(documentId, options = {}) {
       embedding: embeddings[i],
       startSentence: chunk.startSentence,
       endSentence: chunk.endSentence,
+      pageNumber: chunk.pageNumber || null,
+      endPageNumber: chunk.endPageNumber || null,
     }));
 
     for (let i = 0; i < chunkDocs.length; i += CHUNK_INSERT_BATCH_SIZE) {
@@ -351,6 +394,69 @@ async function getDocument(req, res, next) {
     }
 
     res.json({ success: true, data: doc });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getDocumentPreview(req, res, next) {
+  try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, error: 'Invalid document ID.' });
+    }
+
+    const doc = await Document.findOne({ _id: req.params.id, userId: req.user.id })
+      .select('originalName mimeType fileSize status metadata totalChunks')
+      .lean();
+
+    if (!doc) {
+      return res.status(404).json({ success: false, error: 'Document not found.' });
+    }
+
+    const chunks = await Chunk.find({ documentId: doc._id })
+      .sort({ chunkIndex: 1 })
+      .select('text pageNumber endPageNumber')
+      .lean();
+
+    let excerpt = '';
+    for (const chunk of chunks) {
+      if (excerpt.length >= PREVIEW_TEXT_LIMIT) break;
+      excerpt += `${excerpt ? '\n\n' : ''}${chunk.text}`;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ...doc,
+        excerpt: excerpt.slice(0, PREVIEW_TEXT_LIMIT),
+        truncated: excerpt.length >= PREVIEW_TEXT_LIMIT || chunks.length < doc.totalChunks,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getDocumentFile(req, res, next) {
+  try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, error: 'Invalid document ID.' });
+    }
+
+    const doc = await Document.findOne({ _id: req.params.id, userId: req.user.id });
+    if (!doc) {
+      return res.status(404).json({ success: false, error: 'Document not found.' });
+    }
+
+    const buffer = await readDocumentFile(doc);
+    const safeName = doc.originalName.replace(/[\r\n"]/g, '_');
+    res.set({
+      'Content-Type': doc.mimeType,
+      'Content-Length': buffer.length,
+      'Content-Disposition': `inline; filename="${safeName}"`,
+      'Cache-Control': 'private, no-store',
+    });
+    res.send(buffer);
   } catch (err) {
     next(err);
   }
@@ -491,6 +597,8 @@ module.exports = {
   processDocument,
   listDocuments,
   getDocument,
+  getDocumentPreview,
+  getDocumentFile,
   retryDocument,
   deleteDocument,
 };

@@ -218,7 +218,16 @@ ${contextText}
  * @param {function} [params.onDone] - callback called when generation is complete
  * @returns {Promise<string>} full generated answer
  */
-async function chat({ documentId, sessionId, userId, conversationId, question, onChunk, onDone }) {
+async function chat({
+  documentId,
+  sessionId,
+  selectedDocumentIds,
+  userId,
+  conversationId,
+  question,
+  onChunk,
+  onDone,
+}) {
   // 1. Load document/session info
   let documents = [];
   let conversationScope = {};
@@ -228,8 +237,19 @@ async function chat({ documentId, sessionId, userId, conversationId, question, o
     const session = await Session.findOne({ _id: sessionId, userId }).lean();
     if (!session) throw new Error('Session not found');
 
-    documents = await Document.find({ sessionId, userId }).lean();
-    if (documents.length === 0) throw new Error('Upload a document before asking questions.');
+    const sessionDocuments = await Document.find({ sessionId, userId }).lean();
+    if (sessionDocuments.length === 0) throw new Error('Upload a document before asking questions.');
+
+    if (Array.isArray(selectedDocumentIds) && selectedDocumentIds.length > 0) {
+      const requested = new Set(selectedDocumentIds.map(String));
+      documents = sessionDocuments.filter((doc) => requested.has(doc._id.toString()));
+      if (documents.length !== requested.size) {
+        throw new Error('One or more selected documents do not belong to this session.');
+      }
+    } else {
+      documents = sessionDocuments;
+    }
+
     if (documents.some((doc) => doc.status !== 'ready')) {
       throw new Error('Session documents are still being processed');
     }
@@ -370,7 +390,10 @@ async function chat({ documentId, sessionId, userId, conversationId, question, o
       text: r.chunk.text.slice(0, 300),
       score: parseFloat(r.score.toFixed(3)),
       chunkIndex: r.chunk.chunkIndex,
+      documentId: r.chunk.documentId.toString(),
       documentName: r.documentName,
+      pageNumber: r.chunk.pageNumber || null,
+      endPageNumber: r.chunk.endPageNumber || r.chunk.pageNumber || null,
     })),
   };
 }

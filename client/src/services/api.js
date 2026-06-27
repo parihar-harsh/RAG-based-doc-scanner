@@ -70,6 +70,16 @@ export async function getDocument(id) {
   return response.data;
 }
 
+export async function getDocumentPreview(id) {
+  const response = await api.get(`/documents/${id}/preview`);
+  return response.data;
+}
+
+export async function getDocumentFile(id) {
+  const response = await api.get(`/documents/${id}/file`, { responseType: 'blob' });
+  return response.data;
+}
+
 export async function deleteDocument(id) {
   const response = await api.delete(`/documents/${id}`);
   return response.data;
@@ -94,6 +104,11 @@ export async function getSession(id) {
 
 export async function createSession(payload = {}) {
   const response = await api.post('/sessions', payload);
+  return response.data;
+}
+
+export async function updateSession(id, payload) {
+  const response = await api.patch(`/sessions/${id}`, payload);
   return response.data;
 }
 

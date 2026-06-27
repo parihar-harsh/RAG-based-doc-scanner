@@ -104,6 +104,43 @@ async function createSession(req, res, next) {
   }
 }
 
+async function updateSession(req, res, next) {
+  try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, error: 'Invalid session ID.' });
+    }
+
+    const title = typeof req.body?.title === 'string'
+      ? req.body.title.trim().replace(/\s+/g, ' ')
+      : '';
+
+    if (!title) {
+      return res.status(400).json({ success: false, error: 'Session title is required.' });
+    }
+
+    if (title.length > 120) {
+      return res.status(400).json({
+        success: false,
+        error: 'Session title must be 120 characters or fewer.',
+      });
+    }
+
+    const session = await Session.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user.id },
+      { $set: { title } },
+      { new: true }
+    ).lean();
+
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Session not found.' });
+    }
+
+    res.json({ success: true, data: await hydrateSession(session) });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function deleteSession(req, res, next) {
   try {
     if (!isValidObjectId(req.params.id)) {
@@ -133,4 +170,4 @@ async function deleteSession(req, res, next) {
   }
 }
 
-module.exports = { listSessions, getSession, createSession, deleteSession };
+module.exports = { listSessions, getSession, createSession, updateSession, deleteSession };

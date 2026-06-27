@@ -1,4 +1,4 @@
-# Talk to My Doc - Files And Environment Explanation
+# DoxChat AI - Files And Environment Explanation
 
 Use this file to explain the repository structure and environment variables in an interview.
 
@@ -77,7 +77,7 @@ For the current no-Docker deployment, the frontend can be deployed from `client/
 | --- | --- |
 | `client/src/main.jsx` | React entry point. Mounts the app into the DOM and wraps providers. |
 | `client/src/App.jsx` | Top-level app component. Handles auth gate and decides whether to show auth page or chat app. |
-| `client/src/index.css` | Main CSS file for the full frontend UI and dark theme. |
+| `client/src/index.css` | Main responsive document-workspace styling for desktop and mobile. |
 
 ### Client Pages
 
@@ -90,11 +90,14 @@ For the current no-Docker deployment, the frontend can be deployed from `client/
 
 | File | Meaning |
 | --- | --- |
-| `client/src/components/ChatWindow.jsx` | Main chat UI. Handles composer, streaming messages, document status, retry/delete controls, and session document list. |
-| `client/src/components/DocumentList.jsx` | Sidebar for sessions, selected session state, upload button, and logout footer. |
+| `client/src/components/ChatWindow.jsx` | Main workspace UI. Handles retrieval scope, streaming, answer actions, document status, preview, retry/delete controls, and the document rail. |
+| `client/src/components/DocumentList.jsx` | Searchable session sidebar with rename/delete menu, selection, upload, and logout. |
 | `client/src/components/UploadModal.jsx` | Modal for uploading documents into the current session or a new session. |
 | `client/src/components/MessageBubble.jsx` | Renders user/assistant messages and attached sources. |
-| `client/src/components/SourceCard.jsx` | Shows retrieved source snippets returned by the RAG pipeline. |
+| `client/src/components/SourceCard.jsx` | Opens retrieved citation evidence returned by the RAG pipeline. |
+| `client/src/components/InsightPanel.jsx` | Authenticated PDF/text document preview and citation evidence panel. |
+| `client/src/components/ConfirmDialog.jsx` | Accessible confirmation dialog used instead of browser `confirm()`. |
+| `client/src/components/RenameDialog.jsx` | Accessible session rename dialog. |
 | `client/src/components/Loader.jsx` | Reusable loading/spinner UI. |
 
 ### Client Context
@@ -132,7 +135,7 @@ For the current no-Docker deployment, the frontend can be deployed from `client/
 | `server/package.json` | Backend dependencies and scripts. Important scripts: `start`, `dev`, `worker`, `worker:dev`, and `start:all`. |
 | `server/package-lock.json` | Locked backend dependency versions. |
 | `server/server.js` | Main API server entry point. Loads env, validates production env, connects MongoDB, creates HTTP server, starts Socket.io, starts queue event relay, and listens on `PORT`. |
-| `server/app.js` | Express app setup. Adds CORS, body parsers, static uploads, rate limiting, health route, API routes, production frontend serving, 404 handler, and error handler. |
+| `server/app.js` | Express app setup. Adds CORS, body parsers, rate limiting, health/API routes, optional production frontend serving, 404 handling, and global error handling. Raw uploads are not exposed through a public static route. |
 | `server/worker.js` | BullMQ worker entry point. Connects MongoDB and Redis, consumes document-processing jobs, and calls `processDocument`. |
 | `server/startAll.js` | Local helper to start multiple app processes together. |
 | `server/uploads/` | Local upload directory used when `UPLOAD_STORAGE=local`. In production, GridFS is preferred when API and worker are separate. |
@@ -152,7 +155,7 @@ For the current no-Docker deployment, the frontend can be deployed from `client/
 | --- | --- |
 | `server/routes/authRoutes.js` | Maps auth endpoints like signup, login/signin, me, and logout. |
 | `server/routes/sessionRoutes.js` | Maps session endpoints: list, create, get, delete. |
-| `server/routes/documentRoutes.js` | Maps document endpoints: upload, list, get, retry, delete. |
+| `server/routes/documentRoutes.js` | Maps document endpoints: upload, list, get, authenticated preview/file, retry, delete. |
 | `server/routes/chatRoutes.js` | Maps chat endpoints for session chat, legacy document chat, and conversation management. |
 
 Interview explanation:
@@ -164,9 +167,9 @@ Interview explanation:
 | File | Meaning |
 | --- | --- |
 | `server/controllers/authController.js` | Handles signup, login, logout response, and current-user response. |
-| `server/controllers/sessionController.js` | Handles session listing, hydration with attached documents, session creation, deletion, and legacy document migration into sessions. |
-| `server/controllers/documentController.js` | Handles upload, retry, delete, list/get documents, and the background `processDocument` pipeline. |
-| `server/controllers/chatController.js` | Handles SSE chat endpoints and conversation endpoints. Streams tokens, sources, done, and errors. |
+| `server/controllers/sessionController.js` | Handles session listing, hydration, creation, rename, deletion, and legacy migration. |
+| `server/controllers/documentController.js` | Handles upload, authenticated previews, retry/delete, and processing with PDF page metadata. |
+| `server/controllers/chatController.js` | Validates chat scope and handles SSE token/source/done/error events. |
 
 ### Server Schemas
 

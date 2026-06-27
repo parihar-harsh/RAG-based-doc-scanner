@@ -1,9 +1,24 @@
 import Markdown from 'react-markdown';
 import SourceCard from './SourceCard';
-import { Check, Copy, Sparkles } from 'lucide-react';
+import {
+  Check,
+  Copy,
+  Download,
+  Minimize2,
+  RefreshCw,
+  Sparkles,
+  WandSparkles,
+} from 'lucide-react';
 import { useState } from 'react';
 
-export default function MessageBubble({ message }) {
+export default function MessageBubble({
+  message,
+  messageIndex,
+  onOpenSource,
+  onRegenerate,
+  onTransform,
+  onExport,
+}) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
 
@@ -20,7 +35,7 @@ export default function MessageBubble({ message }) {
         {!isUser && (
           <div className="msg-role">
             <Sparkles size={14} />
-            DocChat analysis
+            DoxChat analysis
           </div>
         )}
         <div className="msg-content">
@@ -40,13 +55,38 @@ export default function MessageBubble({ message }) {
               {copied ? <Check size={14} /> : <Copy size={14} />}
               {copied ? 'Copied' : 'Copy'}
             </button>
+            <button type="button" onClick={() => onRegenerate?.(messageIndex)} title="Regenerate answer">
+              <RefreshCw size={14} /> Regenerate
+            </button>
+            <button
+              type="button"
+              onClick={() => onTransform?.('Rewrite your previous answer more concisely.', messageIndex)}
+              title="Make answer shorter"
+            >
+              <Minimize2 size={14} /> Shorter
+            </button>
+            <button
+              type="button"
+              onClick={() => onTransform?.('Explain your previous answer in simple language.', messageIndex)}
+              title="Explain simply"
+            >
+              <WandSparkles size={14} /> Explain simply
+            </button>
+            <button type="button" onClick={() => onExport?.(messageIndex)} title="Export answer">
+              <Download size={14} /> Export
+            </button>
           </div>
         )}
 
         {!isUser && message.sources && message.sources.length > 0 && (
           <div className="msg-sources">
             {message.sources.map((src, i) => (
-              <SourceCard key={i} source={src} sourceNumber={i + 1} />
+              <SourceCard
+                key={`${src.documentId || src.documentName}-${src.chunkIndex ?? i}`}
+                source={src}
+                sourceNumber={i + 1}
+                onOpen={onOpenSource}
+              />
             ))}
           </div>
         )}

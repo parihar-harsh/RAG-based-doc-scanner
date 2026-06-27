@@ -21,7 +21,7 @@ function documentCriteria(documentIds) {
 async function vectorSearch(documentId, queryEmbedding, limit = TOP_K) {
   const top = [];
   const cursor = Chunk.find(documentCriteria(documentId))
-    .select('documentId chunkIndex text tokenCount embedding startSentence endSentence')
+    .select('documentId chunkIndex text tokenCount embedding startSentence endSentence pageNumber endPageNumber')
     .lean()
     .cursor();
 

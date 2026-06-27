@@ -1,6 +1,6 @@
-# Talk to My Doc — Project Context Summary
+# DoxChat AI - Project Context Summary
 
-> **Last Updated:** 2026-06-26T00:00 IST  
+> **Last Updated:** 2026-06-27T14:00 IST
 > **Purpose:** Feed this file to any AI to resume work on this project quickly.  
 > **Project Path:** `/Users/harshparihar/talk-to-my-doc/`
 
@@ -8,7 +8,7 @@
 
 ## 1. Project Overview
 
-**Talk to My Doc** is a full-stack authenticated RAG application where users upload documents and chat with their contents. It is built with React/Vite on the frontend, Express/MongoDB on the backend, Redis/BullMQ for persistent document-processing jobs, and Gemini for embeddings/chat.
+**DoxChat AI** is a full-stack authenticated RAG application where users upload documents and chat with their contents. It is built with React/Vite on the frontend, Express/MongoDB on the backend, Redis/BullMQ for persistent document-processing jobs, and Gemini for embeddings/chat.
 
 ### Key Features
 
@@ -27,8 +27,12 @@
 - Hybrid search: vector similarity + MongoDB `$text` + RRF fusion
 - SSE streaming chat responses
 - Structured RAG prompt for direct answers, summaries, comparisons, missing-info handling, and plain-language explanations
-- ChatGPT-style UI with sessions sidebar and default-visible chatbox
-- Selected-session document list with per-document delete/retry controls
+- Document-workspace UI with searchable sessions, horizontal document cards, and responsive mobile navigation
+- Session rename/delete menus and accessible confirmation dialogs
+- Authenticated PDF/text previews and citation evidence side panel
+- Retrieval scope controls for all documents, one selected document, or comparison mode
+- Answer copy, regenerate, shorten, simplify, and Markdown export actions
+- Selected-session document list with per-document preview/delete/retry controls
 - Defensive handling for invalid ObjectIds, duplicate retries, empty chunks, empty retrieval results, stream errors, and too-long questions
 
 ---
@@ -38,7 +42,7 @@
 | Layer | Technology |
 |-------|------------|
 | Frontend | React 19 + Vite 8 + React Router 7 |
-| Styling | Vanilla CSS, dark ChatGPT-inspired theme |
+| Styling | Vanilla CSS, responsive editorial document-workspace theme |
 | Backend | Express.js + Node.js CommonJS |
 | Auth | JWT bearer token + hashed passwords + Zod |
 | Database | MongoDB Atlas + Mongoose |
@@ -329,11 +333,12 @@ Current intended UI behavior:
 
 - Unauthenticated users see the login/signup page first.
 - Authenticated users see the main chat app.
-- Sidebar title is `Sessions`, not `Documents`.
+- Visible product name is `DoxChat AI`.
 - Sidebar rows are real sessions. One session can contain multiple uploaded documents.
-- Sidebar footer shows signed-in user and `Logout`.
+- Sessions can be searched, renamed, or deleted through a menu.
+- Sidebar footer shows the signed-in user and a sign-out icon.
 - Chatbox is visible by default even before a document is selected.
-- If user sends a message before uploading/selecting a doc, assistant replies: `Push doc first`.
+- Before upload, the composer opens the upload dialog instead of sending an invalid chat request.
 - Upload modal opens from chat input `+`.
 - Uploaded document attaches to the current selected session; if no session is selected, upload creates a new session.
 - Processing documents auto-refresh in the chat panel until all session documents are ready.
@@ -343,6 +348,10 @@ Current intended UI behavior:
 - Upload modal shows immediate errors for rejected file type, file size, or invalid files.
 - Document cards show page count when available, otherwise file size.
 - Newer uploaded documents appear before older ones inside the selected session.
+- Document cards open an authenticated preview; citations open an evidence panel.
+- Chat scope can be all documents, one selected document, or compare mode.
+- Answer actions support copy, regenerate, shorter, simple explanation, and Markdown export.
+- Processing shows parsing, organizing, indexing, and ready stages with retry on failure.
 
 ---
 

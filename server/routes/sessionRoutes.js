@@ -4,6 +4,7 @@ const {
   listSessions,
   getSession,
   createSession,
+  updateSession,
   deleteSession,
 } = require('../controllers/sessionController');
 
@@ -14,6 +15,7 @@ router.use(requireAuth);
 router.get('/', listSessions);
 router.post('/', createSession);
 router.get('/:id', getSession);
+router.patch('/:id', updateSession);
 router.delete('/:id', deleteSession);
 
 module.exports = router;

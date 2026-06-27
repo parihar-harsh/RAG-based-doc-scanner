@@ -32,6 +32,14 @@ const chunkSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    pageNumber: {
+      type: Number,
+      default: null,
+    },
+    endPageNumber: {
+      type: Number,
+      default: null,
+    },
   },
   {
     timestamps: true,

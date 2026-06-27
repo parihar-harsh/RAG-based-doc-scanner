@@ -1,6 +1,6 @@
-# Talk to My Doc
+# DoxChat AI
 
-Talk to My Doc is an authenticated RAG application for uploading documents and chatting with their contents. A session can contain multiple documents, and questions are answered using retrieval across all ready documents in the selected session.
+DoxChat AI is an authenticated RAG workspace for uploading documents and chatting with their contents. A session can contain multiple documents, and each question can target all documents, one selected document, or comparison mode.
 
 The app uses React/Vite on the frontend, Express/MongoDB on the backend, Redis/BullMQ for persistent document-processing jobs, and Gemini for embeddings and chat generation.
 
@@ -21,7 +21,13 @@ The app uses React/Vite on the frontend, Express/MongoDB on the backend, Redis/B
 - Follow-up query rewriting for better retrieval across conversation turns
 - Dynamic retrieval depth based on question type
 - Conversation history restored when switching sessions
-- Selected-session document list with per-document delete and retry controls
+- Searchable and renameable sessions with accessible action dialogs
+- Horizontal document rail with authenticated PDF/text previews
+- All-document, selected-document, and comparison retrieval scopes
+- Citation evidence panel with PDF page ranges for newly processed PDFs
+- Answer copy, regenerate, simplify, shorten, and Markdown export actions
+- Responsive mobile sidebar and bottom-sheet document preview
+- Selected-session document list with per-document preview, delete, and retry controls
 - Guardrails for invalid IDs, duplicate processing retries, empty retrieval results, and too-long questions
 - Docker multi-stage production build with separate API and worker targets
 
@@ -238,7 +244,7 @@ talk-to-my-doc/
 | `User` | Authenticated user account |
 | `Session` | User-owned chat session; can contain multiple documents |
 | `Document` | Uploaded file metadata, status, processing metrics, `sessionId` |
-| `Chunk` | Text chunk, embedding vector, sentence range, `documentId` |
+| `Chunk` | Text chunk, embedding vector, sentence range, PDF page range, `documentId` |
 | `Conversation` | Session-scoped chat messages and title |
 
 Legacy single-document chat routes still exist, but the active UI uses session-scoped chat.
@@ -262,6 +268,7 @@ Legacy single-document chat routes still exist, but the active UI uses session-s
 | `GET` | `/api/sessions` | List current user's sessions with documents |
 | `POST` | `/api/sessions` | Create an empty session |
 | `GET` | `/api/sessions/:id` | Get one session with documents |
+| `PATCH` | `/api/sessions/:id` | Rename a session |
 | `DELETE` | `/api/sessions/:id` | Delete session, documents, chunks, conversations, and files |
 
 ### Documents
@@ -271,6 +278,8 @@ Legacy single-document chat routes still exist, but the active UI uses session-s
 | `POST` | `/api/documents/upload` | Upload a document; optional `sessionId` form field |
 | `GET` | `/api/documents` | List current user's documents |
 | `GET` | `/api/documents/:id` | Get document details |
+| `GET` | `/api/documents/:id/preview` | Get an authenticated extracted-text preview |
+| `GET` | `/api/documents/:id/file` | Stream the authenticated original file |
 | `POST` | `/api/documents/:id/retry` | Retry processing for one document |
 | `DELETE` | `/api/documents/:id` | Delete one document and its chunks |
 
@@ -278,7 +287,7 @@ Legacy single-document chat routes still exist, but the active UI uses session-s
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
-| `POST` | `/api/chat/sessions/:sessionId` | Chat across all documents in a session via SSE |
+| `POST` | `/api/chat/sessions/:sessionId` | Chat via SSE; optional validated `documentIds` restrict retrieval scope |
 | `GET` | `/api/chat/sessions/:sessionId/conversations` | List session conversations |
 | `GET` | `/api/chat/conversations/:conversationId` | Get conversation history |
 | `DELETE` | `/api/chat/conversations/:conversationId` | Delete conversation |

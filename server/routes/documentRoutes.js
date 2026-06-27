@@ -5,6 +5,8 @@ const {
   uploadDocument,
   listDocuments,
   getDocument,
+  getDocumentPreview,
+  getDocumentFile,
   retryDocument,
   deleteDocument,
 } = require('../controllers/documentController');
@@ -18,6 +20,9 @@ router.post('/upload', upload.single('document'), uploadDocument);
 
 // GET /api/documents  — List all documents
 router.get('/', listDocuments);
+
+router.get('/:id/preview', getDocumentPreview);
+router.get('/:id/file', getDocumentFile);
 
 // GET /api/documents/:id  — Get document details
 router.get('/:id', getDocument);

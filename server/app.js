@@ -18,7 +18,7 @@ const app = express();
 app.use(
   cors({
     origin: getCorsOrigin(),
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
@@ -26,9 +26,6 @@ app.use(
 // Body parsers
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
-
-// Serve uploaded files statically (for debugging / admin)
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Rate limiting
 const apiLimiter = rateLimit({

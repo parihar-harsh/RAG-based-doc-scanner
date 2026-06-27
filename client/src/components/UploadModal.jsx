@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { uploadDocument } from '../services/api';
 import { useDoc } from '../context/DocContext';
@@ -33,6 +33,7 @@ export default function UploadModal({ isOpen, onClose }) {
   const { selectedDoc, fetchDocuments, selectDocument } = useDoc();
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const dialogRef = useRef(null);
 
   const onDrop = useCallback(async (acceptedFiles, fileRejections) => {
     if (fileRejections.length > 0) {
@@ -89,14 +90,57 @@ export default function UploadModal({ isOpen, onClose }) {
     disabled: uploading,
   });
 
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const previousFocus = window.document.activeElement;
+    const dialog = dialogRef.current;
+    const focusable = () => [...(dialog?.querySelectorAll(
+      'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])'
+    ) || [])];
+    focusable()[0]?.focus();
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape' && !uploading) {
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const items = focusable();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && window.document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && window.document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.document.removeEventListener('keydown', handleKeyDown);
+      previousFocus?.focus?.();
+    };
+  }, [isOpen, onClose, uploading]);
+
   if (!isOpen) return null;
 
   return (
     <div className="modal-overlay" onClick={uploading ? undefined : onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={dialogRef}
+        className="modal-content"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="upload-dialog-title"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
           <div>
-            <h2>Add a document</h2>
+            <h2 id="upload-dialog-title">Add a document</h2>
             <p>PDF, DOCX, or TXT up to 20 MB</p>
           </div>
           <button className="modal-close" onClick={onClose} disabled={uploading} title="Close">
@@ -106,6 +150,7 @@ export default function UploadModal({ isOpen, onClose }) {
 
         <div
           {...getRootProps()}
+          tabIndex={uploading ? -1 : 0}
           className={`modal-dropzone ${isDragActive ? 'modal-dropzone--active' : ''} ${uploading ? 'modal-dropzone--uploading' : ''}`}
         >
           <input {...getInputProps()} />

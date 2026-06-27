@@ -10,7 +10,7 @@ export default function useSSE() {
   const [error, setError] = useState(null);
   const abortRef = useRef(null);
 
-  const startStream = useCallback(async (sessionId, question, conversationId) => {
+  const startStream = useCallback(async (sessionId, question, conversationId, options = {}) => {
     const trimmedQuestion = typeof question === 'string' ? question.trim() : '';
     if (!sessionId) throw new Error('Select a session before asking a question.');
     if (!trimmedQuestion) throw new Error('Question is required.');
@@ -35,7 +35,11 @@ export default function useSSE() {
             'Content-Type': 'application/json',
             ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
           },
-          body: JSON.stringify({ question: trimmedQuestion, conversationId }),
+          body: JSON.stringify({
+            question: trimmedQuestion,
+            conversationId,
+            ...(options.documentIds?.length ? { documentIds: options.documentIds } : {}),
+          }),
           signal: abortController.signal,
         }
       );

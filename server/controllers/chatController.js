@@ -37,13 +37,33 @@ async function chatWithDocument(req, res, next) {
 
 async function chatWithSession(req, res, next) {
   const { sessionId } = req.params;
-  const { question, conversationId } = req.body;
+  const { question, conversationId, documentIds } = req.body;
+
+  let selectedDocumentIds = null;
+  if (documentIds != null) {
+    if (!Array.isArray(documentIds) || documentIds.length === 0 || documentIds.length > 20) {
+      return res.status(400).json({
+        success: false,
+        error: 'Document scope must contain between 1 and 20 documents.',
+      });
+    }
+
+    selectedDocumentIds = [...new Set(documentIds)];
+    if (
+      selectedDocumentIds.some(
+        (id) => typeof id !== 'string' || !isValidObjectId(id.trim())
+      )
+    ) {
+      return res.status(400).json({ success: false, error: 'Invalid document scope.' });
+    }
+  }
+
   return streamChatResponse({
     req,
     res,
     question,
     conversationId,
-    chatParams: { sessionId },
+    chatParams: { sessionId, selectedDocumentIds },
   });
 }
 

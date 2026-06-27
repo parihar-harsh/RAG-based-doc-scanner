@@ -1,10 +1,10 @@
-# Talk to My Doc - Interview Tech Explanation
+# DoxChat AI - Interview Tech Explanation
 
 Interview date context: current version updated on June 26, 2026.
 
 ## Project In One Line
 
-Talk to My Doc is an authenticated RAG app where users upload PDF, DOCX, or TXT files, the backend processes and embeds them asynchronously, and users chat with their documents through streamed AI responses.
+DoxChat AI is an authenticated RAG workspace where users upload PDF, DOCX, or TXT files, the backend processes and embeds them asynchronously, and users chat with all documents, one selected document, or a comparison scope through streamed AI responses.
 
 ## Architecture Summary
 
@@ -14,7 +14,7 @@ The project has a React/Vite frontend, an Express API server, a BullMQ document 
 
 | Tech | Used For | Why It Is Used |
 | --- | --- | --- |
-| React | Chat UI, auth screens, session sidebar, upload modal, message rendering | The app has lots of interactive state: selected session, messages, upload progress, streaming answers, and auth state. React components and hooks keep that manageable. |
+| React | Document workspace, previews, citation panel, auth, session controls, and streamed answers | The app has interactive state for sessions, retrieval scope, previews, processing, messages, and streaming. React components and hooks keep those concerns manageable. |
 | Vite | Frontend dev server and production build | Fast local development, hot reload, and simple static build output that Express can serve in production. |
 | React Router | Client-side page flow | Keeps authenticated and unauthenticated screens organized without full page reloads. |
 | Axios | Normal REST API calls | Centralized API client, easy JWT headers, and upload progress support for multipart file uploads. |

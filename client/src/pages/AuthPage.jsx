@@ -67,7 +67,7 @@ export default function AuthPage() {
     <main className="auth-page">
       <section className="auth-panel">
         <div className="auth-brand">
-          <h1>DocChat AI</h1>
+          <h1>DoxChat AI</h1>
           <p>{isSignup ? 'Create an account to start a private document session.' : 'Sign in to continue your document sessions.'}</p>
         </div>
 

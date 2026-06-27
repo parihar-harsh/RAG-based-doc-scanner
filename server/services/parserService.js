@@ -40,6 +40,10 @@ async function extractPDF(buffer) {
     return {
       text: data.text || '',
       pageCount: data.total || 0,
+      pages: (data.pages || []).map((page) => ({
+        pageNumber: page.num,
+        text: page.text || '',
+      })),
     };
   } finally {
     await parser.destroy();
@@ -53,6 +57,7 @@ async function extractDOCX(buffer) {
   const result = await mammoth.extractRawText({ buffer });
   return {
     text: result.value || '',
+    pages: [],
   };
 }
 
@@ -60,7 +65,7 @@ async function extractDOCX(buffer) {
  * Read text from a plain text file.
  */
 async function extractTXT(buffer) {
-  return { text: buffer.toString('utf-8') };
+  return { text: buffer.toString('utf-8'), pages: [] };
 }
 
 module.exports = { extractText, extractTextFromBuffer };
