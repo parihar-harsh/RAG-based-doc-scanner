@@ -1,6 +1,6 @@
 # Talk to My Doc — Project Context Summary
 
-> **Last Updated:** 2026-06-13T11:55 IST  
+> **Last Updated:** 2026-06-26T00:00 IST  
 > **Purpose:** Feed this file to any AI to resume work on this project quickly.  
 > **Project Path:** `/Users/harshparihar/talk-to-my-doc/`
 
@@ -13,8 +13,10 @@
 ### Key Features
 
 - Login, signup, logout, and token-based authenticated API access
+- Zod-backed signup/signin validation on both client and server
 - User-scoped sessions, documents, and conversations
 - Document upload for PDF, DOCX, and TXT
+- Upload validation for type, empty files, max size, and bad session IDs
 - Persistent Redis/BullMQ queue for document processing
 - Separate document worker with controlled concurrency and retries
 - Real-time processing progress relayed through Socket.io
@@ -27,6 +29,7 @@
 - Structured RAG prompt for direct answers, summaries, comparisons, missing-info handling, and plain-language explanations
 - ChatGPT-style UI with sessions sidebar and default-visible chatbox
 - Selected-session document list with per-document delete/retry controls
+- Defensive handling for invalid ObjectIds, duplicate retries, empty chunks, empty retrieval results, stream errors, and too-long questions
 
 ---
 
@@ -37,7 +40,7 @@
 | Frontend | React 19 + Vite 8 + React Router 7 |
 | Styling | Vanilla CSS, dark ChatGPT-inspired theme |
 | Backend | Express.js + Node.js CommonJS |
-| Auth | JWT bearer token + hashed passwords |
+| Auth | JWT bearer token + hashed passwords + Zod |
 | Database | MongoDB Atlas + Mongoose |
 | Queue | Redis + BullMQ |
 | Worker | Separate Node worker process |
@@ -93,6 +96,7 @@ RAG_TOP_K_COMPARE=14
 ENABLE_QUERY_REWRITE=true
 ENABLE_HYDE=true
 ENABLE_HYBRID_SEARCH=true
+MAX_QUESTION_LENGTH=4000
 
 # Client
 VITE_API_URL=http://localhost:5001/api
@@ -134,6 +138,8 @@ server/
 │   ├── auth.js
 │   ├── upload.js
 │   └── errorHandler.js
+├── schemas/
+│   └── authSchemas.js               # Zod auth validation and normalization
 ├── services/
 │   ├── authService.js
 │   ├── parserService.js
@@ -147,11 +153,13 @@ server/
 │   ├── sessionController.js          # session list/get/create/delete + legacy document migration
 │   ├── documentController.js         # upload, enqueue, processing pipeline, CRUD
 │   └── chatController.js
-└── routes/
-    ├── authRoutes.js
-    ├── sessionRoutes.js
-    ├── documentRoutes.js
-    └── chatRoutes.js
+├── routes/
+│   ├── authRoutes.js
+│   ├── sessionRoutes.js
+│   ├── documentRoutes.js
+│   └── chatRoutes.js
+└── utils/
+    └── objectId.js                   # shared Mongo ObjectId validation
 ```
 
 ### Client
@@ -173,6 +181,8 @@ client/
     │   └── useSSE.js
     ├── services/
     │   └── api.js                    # Axios auth headers + API helpers
+    ├── schemas/
+    │   └── authSchemas.js            # Zod auth form validation
     ├── pages/
     │   ├── AuthPage.jsx              # Login/signup UI
     │   └── ChatPage.jsx
@@ -194,6 +204,8 @@ client/
 ```txt
 Signup/Login
   -> POST /api/auth/signup or /api/auth/login
+  -> client validates form payloads with Zod
+  -> server validates and normalizes payloads with Zod
   -> server hashes password / verifies password
   -> server signs JWT and returns { user, token }
   -> client stores token in localStorage
@@ -203,15 +215,28 @@ Signup/Login
 
 All session, document, and chat routes require auth. Sessions, documents, and conversations are filtered by `userId`.
 
+Current auth edge behavior:
+
+- `/api/auth/signin` is an alias for `/api/auth/login`.
+- Signup normalizes name and email before storage.
+- Login normalizes email before lookup.
+- Passwords are limited to 8-128 characters and must include at least one letter and one number.
+- Duplicate email conflicts return `409`.
+- Login validation and bad credentials return generic invalid-credentials errors.
+- Bearer token parsing accepts extra whitespace and case-insensitive `Bearer`.
+
 ### Upload + Redis/BullMQ Processing Flow
 
 ```txt
 User uploads file
   -> POST /api/documents/upload
   -> requireAuth
-  -> Multer saves file to server/uploads/
+  -> Multer receives PDF/DOCX/TXT only, max 20 MB
+  -> reject empty files
+  -> validate optional sessionId before attaching
   -> if sessionId is supplied, attach document to that session
   -> otherwise create a new Session
+  -> save upload to local disk or GridFS depending on UPLOAD_STORAGE
   -> Document created with status: uploaded, userId, and sessionId
   -> BullMQ job added to Redis: process-document-<documentId>
   -> HTTP response returns 201
@@ -243,6 +268,10 @@ Job reliability:
 - Current attempts: `DOCUMENT_JOB_ATTEMPTS=5`.
 - Current backoff: exponential, starting at `DOCUMENT_JOB_BACKOFF_MS=15000`.
 - Worker concurrency defaults to `1` to avoid hammering Gemini quota.
+- Retry is blocked while the document is already `uploaded`, `parsing`, `chunking`, or `embedding`.
+- Local files from rejected uploads are cleaned up.
+- Processing clears stale error/chunk metadata when it starts.
+- Processing fails clearly if no text, no chunks, or mismatched embeddings are produced.
 
 ### Semantic Chunking Flow
 
@@ -265,6 +294,8 @@ raw text
 ```txt
 POST /api/chat/sessions/:sessionId  (SSE)
   -> requireAuth
+  -> validate sessionId and optional conversationId before starting SSE
+  -> trim question and enforce MAX_QUESTION_LENGTH
   -> verify session belongs to req.user
   -> load all documents in the session
   -> require at least one document and wait until all session documents are ready
@@ -283,6 +314,7 @@ POST /api/chat/sessions/:sessionId  (SSE)
        fallback: gemini-3.1-flash-lite, gemini-2.5-flash
        structured prompt grounds document-specific facts while allowing plain-language explanations for terms found in context
   -> stream tokens over SSE
+  -> stream clear error if retrieval/model fails after SSE begins
   -> send sources
   -> save user/assistant messages
 ```
@@ -306,6 +338,11 @@ Current intended UI behavior:
 - Uploaded document attaches to the current selected session; if no session is selected, upload creates a new session.
 - Processing documents auto-refresh in the chat panel until all session documents are ready.
 - Chat is disabled until the selected session has at least one document and all documents in that session are ready.
+- Chat questions are capped at 4000 characters by default.
+- SSE stream errors become a completed failed assistant message instead of an indefinitely streaming bubble.
+- Upload modal shows immediate errors for rejected file type, file size, or invalid files.
+- Document cards show page count when available, otherwise file size.
+- Newer uploaded documents appear before older ones inside the selected session.
 
 ---
 
@@ -372,6 +409,7 @@ http://localhost:5001
 |--------|----------|-------------|
 | POST | `/api/auth/signup` | Create account, return token |
 | POST | `/api/auth/login` | Login, return token |
+| POST | `/api/auth/signin` | Login alias, return token |
 | GET | `/api/auth/me` | Current authenticated user |
 | POST | `/api/auth/logout` | Stateless logout acknowledgement |
 
@@ -422,27 +460,25 @@ data: {"type":"sources","sources":[...]}
 data: {"type":"done","conversationId":"..."}
 ```
 
+Chat validation:
+
+- `question` is required, trimmed, and limited by `MAX_QUESTION_LENGTH`.
+- `sessionId`, `documentId`, and `conversationId` must be valid Mongo ObjectIds.
+- Chat starts only when every document in the selected session is ready.
+
 ---
 
 ## 9. Current Verified Status
 
 Verified after latest changes:
 
-- Redis installed with Homebrew and running locally.
-- `redis-cli ping` returns `PONG`.
-- API server starts on `5001`.
-- Worker starts with `DOCUMENT_WORKER_CONCURRENCY=1`.
 - Client builds successfully with `npm run build`.
-- Auth signup/login/me works.
-- Anonymous document routes reject with `Authentication required`.
-- Authenticated document upload works.
-- Upload enqueues a BullMQ job.
-- Worker consumed the queued job.
-- Worker completed parse -> semantic chunk -> embed -> ready.
-- Document status reached `ready`.
-- SSE chat on the queued document streamed a grounded answer.
-- Sources returned with the answer.
-- Smoke-test documents and local smoke-test files were deleted after verification.
+- Changed backend files pass `node --check`.
+- Auth signup/login validation uses Zod on both client and server.
+- Document/chat/session controllers validate invalid IDs before DB queries or SSE setup.
+- Upload edge handling covers empty files, invalid sessions, unsupported types, and cleanup of rejected local uploads.
+- Processing edge handling covers stale errors, duplicate retry, empty chunks, and embedding count mismatch.
+- SSE chat handling covers empty/too-long questions, invalid IDs, empty retrieval, empty model response, and stream errors.
 
 Observed external API behavior:
 

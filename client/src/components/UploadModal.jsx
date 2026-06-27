@@ -3,6 +3,7 @@ import { useDropzone } from 'react-dropzone';
 import { uploadDocument } from '../services/api';
 import { useDoc } from '../context/DocContext';
 import toast from 'react-hot-toast';
+import { FileText, UploadCloud, X } from 'lucide-react';
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const ACCEPTED_MIME_TYPES = new Set([
@@ -94,8 +95,13 @@ export default function UploadModal({ isOpen, onClose }) {
     <div className="modal-overlay" onClick={uploading ? undefined : onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Upload Document</h2>
-          <button className="modal-close" onClick={onClose} disabled={uploading}>×</button>
+          <div>
+            <h2>Add a document</h2>
+            <p>PDF, DOCX, or TXT up to 20 MB</p>
+          </div>
+          <button className="modal-close" onClick={onClose} disabled={uploading} title="Close">
+            <X size={18} />
+          </button>
         </div>
 
         <div
@@ -114,11 +120,12 @@ export default function UploadModal({ isOpen, onClose }) {
           ) : (
             <div className="modal-drop-content">
               <div className="modal-drop-icon">
-                {isDragActive ? '📥' : '📄'}
+                {isDragActive ? <UploadCloud size={30} /> : <FileText size={30} />}
               </div>
               <p className="modal-drop-title">
-                {isDragActive ? 'Drop it here!' : 'Drop file here or click to browse'}
+                {isDragActive ? 'Drop to upload' : 'Drag a file here'}
               </p>
+              <p className="modal-drop-browse">or click to browse your files</p>
               <div className="modal-formats">
                 <span>PDF</span>
                 <span>DOCX</span>

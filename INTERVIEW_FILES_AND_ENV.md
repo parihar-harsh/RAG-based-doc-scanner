@@ -10,7 +10,7 @@ This project is split into:
 - `server/`: Express API, worker, database models, RAG services, and queues.
 - root deployment files: Docker, Render, README, and environment examples.
 
-The frontend lets the user log in, upload documents, select sessions, and chat. The backend owns authentication, document processing, retrieval, streaming, and persistence.
+The frontend lets the user log in, upload documents, select sessions, and chat. The backend owns authentication, document processing, retrieval, streaming, validation, and persistence.
 
 ## Root Files
 
@@ -54,6 +54,8 @@ Interview explanation:
 Important Render idea:
 
 The API and worker are separate services. Because they may not share a filesystem, production uses `UPLOAD_STORAGE=gridfs` so both services can access uploaded files through MongoDB GridFS.
+
+For the current no-Docker deployment, the frontend can be deployed from `client/` on Vercel, while the backend API and worker run on Render. The frontend needs `VITE_API_URL` and `VITE_SOCKET_URL`; the backend needs `CLIENT_ORIGIN` set to the final Vercel URL.
 
 ## Client Files
 
@@ -115,6 +117,12 @@ The API and worker are separate services. Because they may not share a filesyste
 | --- | --- |
 | `client/src/services/api.js` | Central frontend API layer. Configures Axios, auth headers, REST calls, upload calls, and streaming chat fetch calls. |
 
+### Client Schemas
+
+| File | Meaning |
+| --- | --- |
+| `client/src/schemas/authSchemas.js` | Zod schemas for signup/signin form validation, email/name normalization, password rules, and confirm-password matching. |
+
 ## Server Files
 
 ### Server Root
@@ -142,7 +150,7 @@ The API and worker are separate services. Because they may not share a filesyste
 
 | File | Meaning |
 | --- | --- |
-| `server/routes/authRoutes.js` | Maps auth endpoints like signup, login, me, and logout. |
+| `server/routes/authRoutes.js` | Maps auth endpoints like signup, login/signin, me, and logout. |
 | `server/routes/sessionRoutes.js` | Maps session endpoints: list, create, get, delete. |
 | `server/routes/documentRoutes.js` | Maps document endpoints: upload, list, get, retry, delete. |
 | `server/routes/chatRoutes.js` | Maps chat endpoints for session chat, legacy document chat, and conversation management. |
@@ -159,6 +167,12 @@ Interview explanation:
 | `server/controllers/sessionController.js` | Handles session listing, hydration with attached documents, session creation, deletion, and legacy document migration into sessions. |
 | `server/controllers/documentController.js` | Handles upload, retry, delete, list/get documents, and the background `processDocument` pipeline. |
 | `server/controllers/chatController.js` | Handles SSE chat endpoints and conversation endpoints. Streams tokens, sources, done, and errors. |
+
+### Server Schemas
+
+| File | Meaning |
+| --- | --- |
+| `server/schemas/authSchemas.js` | Zod schemas for backend signup/login validation and normalization before controller logic runs. |
 
 ### Server Middleware
 
@@ -197,6 +211,12 @@ Interview explanation:
 | --- | --- |
 | `server/queues/documentQueue.js` | Creates BullMQ queue, Redis connections, queue event listeners, retry behavior, and progress relay helpers. |
 
+### Server Utils
+
+| File | Meaning |
+| --- | --- |
+| `server/utils/objectId.js` | Shared Mongo ObjectId validation helper used by document, session, and chat controllers. |
+
 ## Server Scripts
 
 From `server/package.json`:
@@ -218,6 +238,19 @@ From `client/package.json`:
 | `npm run dev` | Starts Vite development server. |
 | `npm run build` | Builds frontend static files for production. |
 | `npm run preview` | Locally previews the production frontend build. |
+
+## Validation And Edge Cases To Mention
+
+| Area | Current Behavior |
+| --- | --- |
+| Auth forms | Zod validates name, email, password, and confirm-password on the frontend. |
+| Auth API | Backend Zod validation normalizes name/email, limits passwords, handles duplicate email races, and keeps login errors generic. |
+| Token parsing | `auth.js` accepts case-insensitive `Bearer` and trims extra spaces. |
+| Upload | PDF/DOCX/TXT only, 20 MB max, empty files rejected, invalid `sessionId` rejected, rejected local uploads cleaned up. |
+| Processing | Stale errors/chunk counts are cleared at processing start; empty text/chunks and embedding mismatches fail clearly. |
+| Retry | Retry is blocked while status is `uploaded`, `parsing`, `chunking`, or `embedding`. |
+| Chat | IDs are validated before SSE, questions are trimmed and capped by `MAX_QUESTION_LENGTH`, and SSE errors stop the assistant loading state. |
+| Delete | Document delete is blocked after chat has started for that document/session. |
 
 ## Environment Variables
 
@@ -317,6 +350,7 @@ Interview explanation:
 | `ENABLE_QUERY_REWRITE` | Enables follow-up query rewriting. |
 | `ENABLE_HYDE` | Enables HyDE retrieval for short/vague questions. |
 | `ENABLE_HYBRID_SEARCH` | Enables vector + keyword hybrid retrieval. If false, retrieval uses vector search only. |
+| `MAX_QUESTION_LENGTH` | Maximum accepted chat question length. Default is `4000` characters. |
 
 ### Client Environment
 
@@ -343,6 +377,7 @@ Interview explanation:
 - `REDIS_URL`
 - Gemini variables for chat, query rewrite, HyDE, and embeddings
 - RAG retrieval variables
+- `MAX_QUESTION_LENGTH`
 - `UPLOAD_STORAGE`
 
 ### Worker Needs
@@ -402,9 +437,11 @@ Files involved:
 | File | Role In This Step |
 | --- | --- |
 | `client/src/pages/AuthPage.jsx` | Shows signup/login form and collects credentials. |
+| `client/src/schemas/authSchemas.js` | Validates and normalizes auth form data before submit. |
 | `client/src/context/AuthContext.jsx` | Calls login/signup and stores the returned user/token. |
-| `client/src/services/api.js` | Sends `POST /api/auth/signup` or `POST /api/auth/login`. |
+| `client/src/services/api.js` | Sends `POST /api/auth/signup` or `POST /api/auth/login`; `/api/auth/signin` is supported as an alias. |
 | `server/routes/authRoutes.js` | Defines auth endpoints. |
+| `server/schemas/authSchemas.js` | Validates and normalizes signup/login payloads on the backend. |
 | `server/controllers/authController.js` | Handles request/response for signup/login. |
 | `server/services/authService.js` | Hashes passwords, checks passwords, and creates JWTs. |
 | `server/models/User.js` | Creates or reads the user record. |
@@ -412,7 +449,7 @@ Files involved:
 
 Interview explanation:
 
-"The frontend submits credentials through `api.js`. The backend controller delegates security logic to `authService`, which hashes passwords and signs JWTs."
+"The frontend and backend both use Zod for auth validation. The frontend catches bad form input early, and the backend is still the source of truth before hashing passwords, checking credentials, and signing JWTs. `/api/auth/signin` is also available as an alias for `/api/auth/login`."
 
 ### 3. User Enters Main Chat Screen
 
@@ -475,6 +512,7 @@ Files involved:
 | `server/routes/documentRoutes.js` | Maps upload route. |
 | `server/middleware/auth.js` | Ensures only authenticated users can upload. |
 | `server/middleware/upload.js` | Multer parses and validates the uploaded file. |
+| `server/utils/objectId.js` | Validates optional `sessionId` before database queries. |
 | `server/controllers/documentController.js` | Creates/reuses session, stores file, creates document record, enqueues processing job. |
 | `server/services/fileStorageService.js` | Saves file to local disk or GridFS. |
 | `server/models/Session.js` | Creates or updates the session. |
@@ -483,7 +521,7 @@ Files involved:
 
 Interview explanation:
 
-"Upload does not process the whole document inside the HTTP request. It stores metadata and queues a background job, so the request returns quickly."
+"Upload does not process the whole document inside the HTTP request. It validates file type, size, empty files, and session ownership, then stores metadata and queues a background job so the request returns quickly."
 
 ### 6. Worker Processes The Uploaded Document
 
@@ -547,6 +585,7 @@ Files involved:
 | `client/src/services/api.js` | Sends `POST /api/chat/sessions/:sessionId`. |
 | `server/routes/chatRoutes.js` | Maps session chat route. |
 | `server/controllers/chatController.js` | Opens SSE response and streams token/source/done/error events. |
+| `server/utils/objectId.js` | Validates session, document, and conversation IDs before SSE starts. |
 | `server/services/ragService.js` | Runs the full RAG pipeline. |
 | `server/models/Session.js` | Verifies the session belongs to the user. |
 | `server/models/Document.js` | Ensures session documents exist and are ready. |
@@ -554,7 +593,7 @@ Files involved:
 
 Interview explanation:
 
-"When the user sends a question, the backend opens an SSE stream. The frontend receives tokens as they are generated, so the answer appears progressively."
+"When the user sends a question, the backend validates IDs and question length before opening the SSE stream. The frontend receives tokens as they are generated, so the answer appears progressively."
 
 ### 9. Backend Retrieves Relevant Document Chunks
 
@@ -596,7 +635,7 @@ Files involved:
 
 Interview explanation:
 
-"The answer is streamed token by token. Once generation finishes, the backend sends sources and saves the conversation."
+"The answer is streamed token by token. Once generation finishes, the backend sends sources and saves the conversation. If retrieval or generation fails after streaming starts, the backend sends an SSE error event and the frontend stops the loading message cleanly."
 
 ### 11. User Returns Later And Continues Chat
 
@@ -641,14 +680,14 @@ Files involved:
 
 Interview explanation:
 
-"Retry resets document processing state and requeues the job. Delete cleans up database records, chunks, conversations, and the stored uploaded file."
+"Retry resets document processing state and requeues the job, but duplicate retry is blocked while the document is already queued or processing. Delete cleans up database records, chunks, conversations, and the stored uploaded file, and document delete is blocked after chat has started for that document/session."
 
 ## Short End-To-End Flow
 
 1. User opens app: `index.html` -> `main.jsx` -> `App.jsx`.
-2. User logs in: `AuthPage.jsx` -> `AuthContext.jsx` -> `authRoutes.js` -> `authController.js` -> `authService.js` -> `User.js`.
+2. User logs in: `AuthPage.jsx` -> `client authSchemas.js` -> `AuthContext.jsx` -> `authRoutes.js` -> `server authSchemas.js` -> `authController.js` -> `authService.js` -> `User.js`.
 3. User sees sessions: `ChatPage.jsx` -> `DocContext.jsx` -> `sessionRoutes.js` -> `sessionController.js` -> `Session.js` + `Document.js`.
-4. User uploads document: `UploadModal.jsx` -> `api.js` -> `documentRoutes.js` -> `upload.js` -> `documentController.js`.
+4. User uploads document: `UploadModal.jsx` -> `api.js` -> `documentRoutes.js` -> `upload.js` -> `objectId.js` -> `documentController.js`.
 5. Backend queues job: `documentController.js` -> `fileStorageService.js` -> `Document.js` -> `documentQueue.js` -> Redis.
 6. Worker processes document: `worker.js` -> `processDocument` -> `parserService.js` -> `chunkerService.js` -> `embeddingService.js` -> `Chunk.js`.
 7. User sees progress: worker progress -> `documentQueue.js` -> `socket.js` -> `useSocket.js` -> UI.
@@ -674,7 +713,7 @@ Chat:
 
 1. `ChatWindow.jsx` sends the question through `useSSE.js` and `api.js`.
 2. `chatRoutes.js` maps request to `chatController.js`.
-3. `chatController.js` opens an SSE stream.
+3. `chatController.js` validates IDs/question and opens an SSE stream.
 4. `ragService.js` runs memory, query rewrite, HyDE, embedding, retrieval, prompt, and Gemini streaming.
 5. `searchService.js` retrieves relevant chunks.
 6. `Conversation.js` saves the final user and assistant messages.

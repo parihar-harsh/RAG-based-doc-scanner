@@ -1,6 +1,6 @@
 # Talk to My Doc - Interview Tech Explanation
 
-Interview date context: tomorrow is June 18, 2026.
+Interview date context: current version updated on June 26, 2026.
 
 ## Project In One Line
 
@@ -8,7 +8,7 @@ Talk to My Doc is an authenticated RAG app where users upload PDF, DOCX, or TXT 
 
 ## Architecture Summary
 
-The project has a React/Vite frontend, an Express API server, a separate BullMQ document worker, MongoDB for persistent app data, Redis for queue state, and Gemini for embeddings/chat. The main design choice is separating upload/API work from long-running document processing so the app stays responsive and failed processing jobs can retry.
+The project has a React/Vite frontend, an Express API server, a BullMQ document worker, MongoDB for persistent app data, Redis for queue state, and Gemini for embeddings/chat. The main design choice is separating upload/API work from long-running document processing so the app stays responsive and failed processing jobs can retry. In deployment, the frontend can run on Vercel while the API and worker run on Render.
 
 ## Frontend Tech
 
@@ -23,6 +23,7 @@ The project has a React/Vite frontend, an Express API server, a separate BullMQ 
 | react-dropzone | File selection/upload UX | Makes drag-and-drop document upload easier to implement. |
 | react-hot-toast | Toast notifications | Shows upload, delete, retry, and error feedback in the UI. |
 | react-markdown | Assistant answer rendering | Lets AI answers render Markdown like bullets, code, and formatted text. |
+| Zod | Auth form validation | Keeps signup/signin validation rules consistent with the backend. |
 
 ## Backend Tech
 
@@ -39,12 +40,27 @@ The project has a React/Vite frontend, an Express API server, a separate BullMQ 
 | Socket.io Server | Real-time progress relay | API listens to BullMQ QueueEvents and emits document progress to the browser. |
 | Server-Sent Events | Streaming chat responses | Chat is one-way server-to-client token streaming, so SSE is simpler than WebSockets. |
 | JWT | Authentication | Stateless bearer-token auth. Each protected route filters data by `userId`. |
+| Zod | Request validation | Validates and normalizes auth payloads before database or password logic runs. |
 | Password Hashing | Secure password storage | Passwords are never stored in plaintext; login verifies against the hash. |
 | CORS | Frontend/backend communication | Required because Vite and Express run on different origins during development. |
 | express-rate-limit | API protection | Limits request spikes and helps protect expensive API/AI routes. |
 | Multer | File uploads | Parses multipart uploads and provides file metadata/buffer/path to the backend. |
 | GridFS | Production upload storage option | Useful when API and worker are separate services and cannot share local disk. |
 | Node fs | Local upload storage | Reads/deletes uploaded files during local development. |
+
+## Validation And Edge-Case Handling
+
+| Area | Edge Cases Covered |
+| --- | --- |
+| Auth | Signup/signin validates with Zod on both frontend and backend, normalizes email/name, limits password length, handles duplicate email conflicts, and returns generic login errors. |
+| Bearer tokens | The auth middleware accepts case-insensitive `Bearer` and trims extra spaces before JWT verification. |
+| Uploads | The app rejects unsupported types, empty files, oversized files, invalid session IDs, and cleans up rejected local uploads. |
+| Processing | Retry is blocked while a document is already queued or processing; stale errors/chunk counts are cleared before reprocessing; empty chunks and embedding mismatches fail clearly. |
+| Chat | Session/document/conversation IDs are validated before SSE starts, questions are trimmed and length-limited, empty retrieval results produce a clear error, and frontend SSE errors stop the loading message. |
+
+Interview answer:
+
+"I tried to avoid only handling the happy path. Auth uses Zod on both client and server, upload validates file type/size/session ownership, chat validates IDs before opening the SSE stream, and document processing has guards for empty text, empty chunks, embedding mismatch, and duplicate retry clicks."
 
 ## AI / RAG Tech
 
@@ -117,11 +133,13 @@ Interview answer:
 | --- | --- | --- |
 | Docker | Packaging API/frontend and worker | Gives repeatable builds and supports separate production services. |
 | Render YAML | Deployment configuration | Defines API, worker, environment variables, and service settings as config. |
+| Render | Backend deployment | Hosts the Express API, BullMQ worker/background process, and Redis/Key Value service. |
+| Vercel | Frontend deployment | Hosts the static Vite frontend and injects `VITE_API_URL` / `VITE_SOCKET_URL` at build time. |
 | Environment Variables | Runtime configuration | Keeps secrets and deployment-specific settings outside source code. |
 
 ## Strong Interview Explanation
 
-"The most important design decision was making document processing asynchronous. Uploading a document only creates metadata and enqueues a BullMQ job. A separate worker parses the file, creates semantic chunks, generates embeddings with Gemini, and stores chunks in MongoDB. Redis keeps the queue reliable with retries and progress updates. The API remains responsive, Socket.io shows processing status, and SSE streams the final chat answer token by token. Retrieval uses hybrid search, combining vector similarity with MongoDB text search, then Gemini generates a grounded answer from the retrieved chunks."
+"The most important design decision was making document processing asynchronous. Uploading a document only creates metadata and enqueues a BullMQ job. A worker parses the file, creates semantic chunks, generates embeddings with Gemini, and stores chunks in MongoDB. Redis keeps the queue reliable with retries and progress updates. The API remains responsive, Socket.io shows processing status, and SSE streams the final chat answer token by token. Retrieval uses hybrid search, combining vector similarity with MongoDB text search, then Gemini generates a grounded answer from the retrieved chunks. I also added validation around auth, upload, IDs, retry, and SSE errors so the app handles failure cases predictably."
 
 ## Limitations To Mention Honestly
 

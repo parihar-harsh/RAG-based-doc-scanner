@@ -5,6 +5,18 @@ import MessageBubble from './MessageBubble';
 import { Spinner } from './Loader';
 import { deleteDocument, getSession, retryDocument } from '../services/api';
 import toast from 'react-hot-toast';
+import {
+  FilePlus2,
+  FileText,
+  GitCompareArrows,
+  ListChecks,
+  Plus,
+  RotateCcw,
+  ScanText,
+  Search,
+  Send,
+  Trash2,
+} from 'lucide-react';
 
 const PHASE_PROGRESS = {
   uploaded: 10,
@@ -27,6 +39,12 @@ const PHASE_LABELS = {
 };
 
 const MAX_QUESTION_LENGTH = 4000;
+const QUICK_QUESTIONS = [
+  { label: 'Summarize the key ideas', question: 'Summarize the key ideas in this session.', icon: ScanText },
+  { label: 'Extract important details', question: 'Extract the most important facts, dates, and requirements.', icon: ListChecks },
+  { label: 'Find a specific answer', question: 'What are the most important details I should look for?', icon: Search },
+  { label: 'Compare the documents', question: 'Compare the uploaded documents and identify important differences.', icon: GitCompareArrows },
+];
 
 function toTime(value) {
   const time = value ? new Date(value).getTime() : NaN;
@@ -72,7 +90,6 @@ export default function ChatWindow({ onUploadClick }) {
     (a, b) => (toTime(b.createdAt) || 0) - (toTime(a.createdAt) || 0)
   );
   const hasDocuments = sessionDocuments.length > 0;
-  const primaryDocument = sessionDocuments.length === 1 ? sessionDocuments[0] : null;
   const hasError = sessionDocuments.some((doc) => doc.status === 'error') || selectedDoc?.status === 'error';
   const allReady = hasDocuments && sessionDocuments.every((doc) => doc.status === 'ready');
   const canChat = allReady && !hasError;
@@ -89,11 +106,6 @@ export default function ChatWindow({ onUploadClick }) {
         : hasDocuments
           ? PHASE_LABELS[currentPhase] || 'Processing documents'
           : 'Upload a document first'
-    : '';
-  const statusTitle = selectedDoc
-    ? hasDocuments
-      ? sessionDocuments.map((doc) => doc.originalName).join(', ')
-      : selectedDoc.title || 'New session'
     : '';
   const statusName = selectedDoc
     ? hasDocuments
@@ -277,22 +289,99 @@ export default function ChatWindow({ onUploadClick }) {
 
   return (
     <div className="chat-container">
+      <header className="workspace-header">
+        <div className="workspace-heading">
+          <span className="workspace-eyebrow">Document workspace</span>
+          <h1>{selectedDoc?.title || 'New research session'}</h1>
+          <div className="workspace-meta">
+            {selectedDoc ? (
+              <>
+                <span className={`workspace-status-dot ${canChat ? 'is-ready' : hasError ? 'is-error' : 'is-processing'}`} />
+                <span>{statusLabel}</span>
+              </>
+            ) : (
+              <span>Start by adding a source document</span>
+            )}
+          </div>
+        </div>
+        <button className="workspace-upload-btn" onClick={onUploadClick}>
+          <FilePlus2 size={16} />
+          Add document
+        </button>
+      </header>
+
+      {selectedDoc && (
+        <section className="workspace-document-rail" aria-label="Session documents">
+          <button className="document-add-card" onClick={onUploadClick}>
+            <span><Plus size={18} /></span>
+            <strong>Add document</strong>
+          </button>
+
+          {displayedSessionDocuments.map((doc) => {
+            const isReady = doc.status === 'ready';
+            const isError = doc.status === 'error';
+            const canShowDelete = canShowDeleteDocument(doc);
+            const isProcessing = isDocumentProcessing(doc);
+            const statusText = isReady
+              ? formatDocumentMeta(doc)
+              : isError
+                ? 'Processing failed'
+                : doc.status === 'uploaded'
+                  ? 'Queued'
+                  : doc.status;
+
+            return (
+              <article key={doc._id} className={`document-card ${isError ? 'document-card--error' : ''}`}>
+                <div className="document-card-icon">
+                  <FileText size={18} />
+                </div>
+                <div className="document-card-content">
+                  <strong title={doc.originalName}>{doc.originalName}</strong>
+                  <span className={isError ? 'is-error' : ''}>
+                    <i className={`status-dot ${isReady ? 'status-dot--ready' : isError ? 'status-dot--error' : 'status-dot--processing'}`} />
+                    {statusText}
+                  </span>
+                </div>
+                {(isError || canShowDelete) && (
+                  <div className="document-card-actions">
+                    {isError && (
+                      <button type="button" onClick={() => handleRetryDocument(doc)} title="Retry processing">
+                        <RotateCcw size={14} />
+                      </button>
+                    )}
+                    {canShowDelete && (
+                      <button
+                        type="button"
+                        className="is-danger"
+                        onClick={() => handleDeleteDocument(doc)}
+                        disabled={isProcessing}
+                        title={isProcessing ? 'Wait for processing to finish' : 'Delete document'}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </section>
+      )}
+
       {/* Messages area */}
       <div className="chat-messages">
         {!selectedDoc && messages.length === 0 && (
           <div className="chat-start">
-            <div className="chat-start-icon">
-              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <path d="M14 2v6h6" />
-                <path d="M9 15h6" />
-                <path d="M9 11h2" />
-              </svg>
+            <div className="chat-start-visual">
+              <span className="chat-start-sheet chat-start-sheet--back" />
+              <span className="chat-start-sheet chat-start-sheet--front"><FileText size={34} /></span>
             </div>
-            <h1>Upload a document to start</h1>
-            <p>Chats are unlocked after your file is processed and indexed.</p>
+            <span className="chat-start-kicker">Grounded document intelligence</span>
+            <h1>Turn documents into clear answers</h1>
+            <p>Upload research, reports, resumes, or notes and work directly from their contents.</p>
             <button className="chat-start-upload" onClick={onUploadClick}>
-              Upload document
+              <FilePlus2 size={17} />
+              Choose a document
             </button>
           </div>
         )}
@@ -300,18 +389,30 @@ export default function ChatWindow({ onUploadClick }) {
         {!canChat && selectedDoc && messages.length === 0 && (
           <div className="chat-start">
             <div className="chat-processing-spinner" />
-            <h1>Preparing your session</h1>
+            <span className="chat-start-kicker">Building your workspace</span>
+            <h1>Indexing your documents</h1>
             <p>{statusName}</p>
-            <span className="chat-start-status">
-              {hasDocuments ? 'Chat unlocks automatically when processing finishes.' : 'Push doc first.'}
-            </span>
+            {hasDocuments && (
+              <div className="processing-track" aria-label={statusLabel}>
+                <span style={{ width: `${progressPercent}%` }} />
+              </div>
+            )}
+            <span className="chat-start-status">{hasDocuments ? statusLabel : 'Add a document to begin'}</span>
           </div>
         )}
 
         {canChat && messages.length === 0 && (
           <div className="chat-welcome">
-            <div className="chat-welcome-icon">💬</div>
-            <h2>Ask anything about this session</h2>
+            <span className="chat-start-kicker">Ready to explore</span>
+            <h2>What would you like to understand?</h2>
+            <div className="quick-question-grid">
+              {QUICK_QUESTIONS.map(({ label, question, icon: Icon }) => (
+                <button key={label} type="button" onClick={() => handleSend(question)}>
+                  <Icon size={17} />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -325,113 +426,6 @@ export default function ChatWindow({ onUploadClick }) {
 
       {/* Input area */}
       <div className="chat-input-wrapper">
-        {selectedDoc && !hasDocuments && (
-          <div
-            className={`chat-file-status ${canChat ? 'chat-file-status--ready' : ''} ${
-              hasError ? 'chat-file-status--error' : ''
-            }`}
-            title={statusTitle}
-          >
-            <div className="chat-file-progress" style={{ '--progress': `${progressPercent}%` }}>
-              {canChat ? (
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M20 6 9 17l-5-5" />
-                </svg>
-              ) : hasError ? (
-                <span>!</span>
-              ) : (
-                <span>{progressPercent}%</span>
-              )}
-            </div>
-            <div className="chat-file-info">
-              <span className="chat-file-name">{statusName}</span>
-              <span className="chat-file-meta">{statusLabel}</span>
-            </div>
-            {primaryDocument && (primaryDocument.status === 'error' || canShowDeleteDocument(primaryDocument)) && (
-              <div className="chat-file-actions">
-                {primaryDocument.status === 'error' && (
-                  <button
-                    className="session-doc-action"
-                    onClick={() => handleRetryDocument(primaryDocument)}
-                    title="Retry processing"
-                  >
-                    Retry
-                  </button>
-                )}
-                {canShowDeleteDocument(primaryDocument) && (
-                  <button
-                    className="session-doc-action session-doc-action--danger"
-                    onClick={() => handleDeleteDocument(primaryDocument)}
-                    disabled={isDocumentProcessing(primaryDocument)}
-                    title={isDocumentProcessing(primaryDocument) ? 'Wait for processing to finish' : 'Delete document'}
-                  >
-                    Delete
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-        {hasDocuments && (
-          <div className="session-doc-list">
-            {displayedSessionDocuments.map((doc) => {
-              const isReady = doc.status === 'ready';
-              const isError = doc.status === 'error';
-              const canShowDelete = canShowDeleteDocument(doc);
-              const isProcessing = isDocumentProcessing(doc);
-              const statusText = isReady
-                ? formatDocumentMeta(doc)
-                : isError
-                  ? 'Failed'
-                  : doc.status === 'uploaded'
-                    ? 'Queued'
-                    : doc.status;
-
-              return (
-                <div key={doc._id} className="session-doc-item">
-                  <span
-                    className={`status-dot ${
-                      isReady
-                        ? 'status-dot--ready'
-                        : isError
-                          ? 'status-dot--error'
-                          : 'status-dot--processing'
-                    }`}
-                  />
-                  <div className="session-doc-details">
-                    <span className="session-doc-name">{doc.originalName}</span>
-                    <span className={`session-doc-status ${isError ? 'session-doc-status--error' : ''}`}>
-                      {statusText}
-                    </span>
-                  </div>
-                  {(isError || canShowDelete) && (
-                    <div className="session-doc-actions">
-                      {isError && (
-                        <button
-                          className="session-doc-action"
-                          onClick={() => handleRetryDocument(doc)}
-                          title="Retry processing"
-                        >
-                          Retry
-                        </button>
-                      )}
-                      {canShowDelete && (
-                        <button
-                          className="session-doc-action session-doc-action--danger"
-                          onClick={() => handleDeleteDocument(doc)}
-                          disabled={isProcessing}
-                          title={isProcessing ? 'Wait for processing to finish' : 'Delete document'}
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
         <div
           className={`chat-input-box ${shouldOpenUploadFromComposer ? 'chat-input-box--upload-trigger' : ''}`}
           onClick={handleComposerClick}
@@ -444,15 +438,12 @@ export default function ChatWindow({ onUploadClick }) {
             onClick={onUploadClick}
             title="Upload document"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
+            <Plus size={18} />
           </button>
           <textarea
             ref={textareaRef}
             className="chat-textarea"
-            placeholder={canChat ? 'Ask a question...' : 'Push doc first'}
+            placeholder={canChat ? 'Ask across your documents...' : 'Add a document to begin'}
             value={input}
             onChange={(e) => setInput(e.target.value.slice(0, MAX_QUESTION_LENGTH))}
             onKeyDown={handleKeyDown}
@@ -468,16 +459,14 @@ export default function ChatWindow({ onUploadClick }) {
             {isStreaming ? (
               <Spinner size={18} />
             ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-              </svg>
+              <Send size={17} />
             )}
           </button>
         </div>
         <p className="chat-disclaimer">
           {canChat
-            ? 'AI can make mistakes. Responses are grounded in this session.'
-            : 'Push doc first.'}
+            ? 'Answers are grounded in the documents shown above.'
+            : 'Add a document to unlock the workspace.'}
         </p>
       </div>
     </div>

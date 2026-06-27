@@ -3,6 +3,7 @@ import DocumentList from '../components/DocumentList';
 import ChatWindow from '../components/ChatWindow';
 import UploadModal from '../components/UploadModal';
 import { useDoc } from '../context/DocContext';
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 export default function ChatPage() {
   const [showUpload, setShowUpload] = useState(false);
@@ -23,7 +24,7 @@ export default function ChatPage() {
         title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
         aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
       >
-        {sidebarOpen ? '✕' : '☰'}
+        {sidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
       </button>
 
       {/* Sidebar */}
