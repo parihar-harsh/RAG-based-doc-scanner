@@ -4,6 +4,8 @@ node_modules/
 dist/
 uploads/*
 !uploads/.gitkeep
+server/uploads/*
+!server/uploads/.gitkeep
 
 # Local smoke-test files
 /demo.txt

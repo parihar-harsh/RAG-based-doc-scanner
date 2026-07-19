@@ -1,18 +1,6 @@
-const fs = require('fs/promises');
 const path = require('path');
 const { PDFParse } = require('pdf-parse');
 const mammoth = require('mammoth');
-
-/**
- * Extract text from a file based on its extension.
- * @param {string} filePath - Absolute path to the file.
- * @returns {Promise<{ text: string, pageCount?: number }>}
- */
-async function extractText(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  const buffer = await fs.readFile(filePath);
-  return extractTextFromBuffer(buffer, filePath);
-}
 
 async function extractTextFromBuffer(buffer, fileName) {
   const ext = path.extname(fileName).toLowerCase();
@@ -68,4 +56,4 @@ async function extractTXT(buffer) {
   return { text: buffer.toString('utf-8'), pages: [] };
 }
 
-module.exports = { extractText, extractTextFromBuffer };
+module.exports = { extractTextFromBuffer };

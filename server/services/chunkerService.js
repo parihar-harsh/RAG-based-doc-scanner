@@ -21,9 +21,8 @@ function estimateTokens(text) {
  * uppercase letter, quote, or parenthesis — preserving abbreviations and decimals.
  * Also splits on double newlines (paragraph breaks).
  *
- * This is more precise than LangChain's RecursiveCharacterTextSplitter for
- * semantic chunking because it cuts at actual sentence boundaries rather than
- * arbitrary character counts.
+ * This cuts at sentence boundaries rather than arbitrary character counts,
+ * which keeps semantic chunking from splitting through the middle of a thought.
  *
  * @param {string} text
  * @returns {string[]}

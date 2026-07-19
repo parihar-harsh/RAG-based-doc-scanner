@@ -83,7 +83,7 @@ async function embedText(text) {
 /**
  * Fast batch embedding using Gemini's batchEmbedContents API directly.
  * Sends up to 100 texts per API call instead of one-by-one.
- * This is ~50-100x faster than LangChain's embedDocuments for large batches.
+ * This avoids slow one-request-per-text embedding for large batches.
  *
  * @param {string[]} texts
  * @param {object} [options]
