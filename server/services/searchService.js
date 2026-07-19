@@ -1,7 +1,28 @@
 const Chunk = require('../models/Chunk');
-const { embedText, cosineSimilarity } = require('./embeddingService');
+const { cosineSimilarity } = require('./embeddingService');
 
 const TOP_K = parseInt(process.env.RAG_TOP_K, 10) || 8;
+const CANDIDATE_MULTIPLIER = parseInt(process.env.RAG_CANDIDATE_MULTIPLIER, 10) || 2;
+const MAX_SEARCH_CANDIDATES = parseInt(process.env.RAG_MAX_SEARCH_CANDIDATES, 10) || 50;
+
+function normalizePositiveInt(value, fallback) {
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function normalizeLimit(value, fallback = TOP_K) {
+  return normalizePositiveInt(value, fallback);
+}
+
+function getCandidateLimit(topK) {
+  const multiplier = normalizePositiveInt(CANDIDATE_MULTIPLIER, 2);
+  const maxCandidates = normalizePositiveInt(MAX_SEARCH_CANDIDATES, Math.max(topK * multiplier, topK));
+  return Math.max(topK, Math.min(topK * multiplier, maxCandidates));
+}
+
+function isValidEmbedding(vector) {
+  return Array.isArray(vector) && vector.length > 0 && vector.every(Number.isFinite);
+}
 
 /**
  * Vector search: compute cosine similarity between the query embedding
@@ -19,6 +40,9 @@ function documentCriteria(documentIds) {
 }
 
 async function vectorSearch(documentId, queryEmbedding, limit = TOP_K) {
+  const normalizedLimit = normalizeLimit(limit);
+  if (!isValidEmbedding(queryEmbedding)) return [];
+
   const top = [];
   const cursor = Chunk.find(documentCriteria(documentId))
     .select('documentId chunkIndex text tokenCount embedding startSentence endSentence pageNumber endPageNumber')
@@ -26,12 +50,19 @@ async function vectorSearch(documentId, queryEmbedding, limit = TOP_K) {
     .cursor();
 
   for await (const chunk of cursor) {
+    if (!isValidEmbedding(chunk.embedding) || chunk.embedding.length !== queryEmbedding.length) {
+      continue;
+    }
+
+    const score = cosineSimilarity(queryEmbedding, chunk.embedding);
+    if (!Number.isFinite(score)) continue;
+
     const item = {
       chunk,
-      score: cosineSimilarity(queryEmbedding, chunk.embedding),
+      score,
     };
 
-    if (top.length < limit) {
+    if (top.length < normalizedLimit) {
       top.push(item);
       top.sort((a, b) => a.score - b.score);
     } else if (item.score > top[0].score) {
@@ -52,16 +83,20 @@ async function vectorSearch(documentId, queryEmbedding, limit = TOP_K) {
  * @returns {Promise<{ chunk: object, score: number }[]>}
  */
 async function textSearch(documentId, query, limit = TOP_K) {
+  const normalizedLimit = normalizeLimit(limit);
+  const normalizedQuery = typeof query === 'string' ? query.trim() : '';
+  if (!normalizedQuery) return [];
+
   try {
     const results = await Chunk.find(
       {
         ...documentCriteria(documentId),
-        $text: { $search: query },
+        $text: { $search: normalizedQuery },
       },
       { score: { $meta: 'textScore' } }
     )
       .sort({ score: { $meta: 'textScore' } })
-      .limit(limit)
+      .limit(normalizedLimit)
       .lean();
 
     return results.map((chunk) => ({
@@ -85,14 +120,23 @@ async function textSearch(documentId, query, limit = TOP_K) {
  */
 function reciprocalRankFusion(rankedLists, k = 60) {
   const scoreMap = new Map(); // chunkId -> { chunk, score }
+  const rrfK = normalizePositiveInt(k, 60);
 
   for (const list of rankedLists) {
+    if (!Array.isArray(list)) continue;
+    const seenInList = new Set();
+
     list.forEach((item, rank) => {
+      if (!item?.chunk?._id) return;
+
       const id = item.chunk._id.toString();
+      if (seenInList.has(id)) return;
+      seenInList.add(id);
+
       if (!scoreMap.has(id)) {
         scoreMap.set(id, { chunk: item.chunk, score: 0 });
       }
-      scoreMap.get(id).score += 1 / (k + rank + 1); // rank is 0-indexed, so +1
+      scoreMap.get(id).score += 1 / (rrfK + rank + 1); // rank is 0-indexed, so +1
     });
   }
 
@@ -113,9 +157,9 @@ function reciprocalRankFusion(rankedLists, k = 60) {
  * @returns {Promise<{ chunk: object, score: number }[]>}
  */
 async function hybridSearch(documentId, query, queryEmbedding, options = {}) {
-  const topK = options.topK || TOP_K;
+  const topK = normalizeLimit(options.topK);
   const enableHybrid = options.enableHybrid !== undefined ? options.enableHybrid : true;
-  const candidateK = topK * 2;
+  const candidateK = getCandidateLimit(topK);
 
   // Always do vector search
   const vectorResults = await vectorSearch(documentId, queryEmbedding, candidateK);
@@ -132,4 +176,14 @@ async function hybridSearch(documentId, query, queryEmbedding, options = {}) {
   return merged.slice(0, topK);
 }
 
-module.exports = { hybridSearch, vectorSearch, textSearch, reciprocalRankFusion };
+module.exports = {
+  hybridSearch,
+  vectorSearch,
+  textSearch,
+  reciprocalRankFusion,
+  _private: {
+    getCandidateLimit,
+    isValidEmbedding,
+    normalizeLimit,
+  },
+};

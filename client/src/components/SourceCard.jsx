@@ -11,7 +11,7 @@ export default function SourceCard({ source, sourceNumber, onOpen }) {
         <FileText size={13} />
         <span className="source-card-label">
           {source.documentName && `${source.documentName} · `}
-          Evidence {sourceNumber}
+          {source.sourceLabel || `Source ${sourceNumber}`}
           {source.pageNumber != null && ` · Page ${source.pageNumber}`}
         </span>
         <span className="source-card-toggle"><ArrowUpRight size={14} /></span>

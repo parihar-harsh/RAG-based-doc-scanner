@@ -97,10 +97,13 @@ RAG_TOP_K_FACTUAL=6
 RAG_TOP_K_DEFAULT=8
 RAG_TOP_K_BROAD=12
 RAG_TOP_K_COMPARE=14
+RAG_CANDIDATE_MULTIPLIER=2
+RAG_MAX_SEARCH_CANDIDATES=50
 ENABLE_QUERY_REWRITE=true
 ENABLE_HYDE=true
 ENABLE_HYBRID_SEARCH=true
 MAX_QUESTION_LENGTH=4000
+UPLOAD_IDEMPOTENCY_WINDOW_MS=300000
 
 # Client
 VITE_API_URL=http://localhost:5001/api
@@ -274,6 +277,7 @@ Job reliability:
 - Worker concurrency defaults to `1` to avoid hammering Gemini quota.
 - Retry is blocked while the document is already `uploaded`, `parsing`, `chunking`, or `embedding`.
 - Local files from rejected uploads are cleaned up.
+- Uploads are hashed for duplicate detection; same-session duplicate uploads return the existing document.
 - Processing clears stale error/chunk metadata when it starts.
 - Processing fails clearly if no text, no chunks, or mismatched embeddings are produced.
 
@@ -486,8 +490,10 @@ Verified after latest changes:
 - Auth signup/login validation uses Zod on both client and server.
 - Document/chat/session controllers validate invalid IDs before DB queries or SSE setup.
 - Upload edge handling covers empty files, invalid sessions, unsupported types, and cleanup of rejected local uploads.
+- Upload duplicate handling uses file hashes for same-session duplicates and recent no-session duplicates.
 - Processing edge handling covers stale errors, duplicate retry, empty chunks, and embedding count mismatch.
-- SSE chat handling covers empty/too-long questions, invalid IDs, empty retrieval, empty model response, and stream errors.
+- Hybrid retrieval handles invalid limits, blank text queries, text-search fallback, invalid embeddings, dimension mismatches, duplicate RRF entries, and capped candidate expansion.
+- SSE chat handling covers empty/too-long questions, invalid IDs, empty retrieval, empty model response, stream errors, and client disconnect checkpoints.
 
 Observed external API behavior:
 
@@ -562,4 +568,4 @@ Recommended next improvements for large documents:
    SSE fits one-way streamed chat responses. Socket.io fits real-time processing progress updates.
 
 8. **In-memory vector search for now**  
-   Current vector search streams chunks with a MongoDB cursor and keeps only top-K in memory. Acceptable for small/medium per-document chunk sets. Revisit with Atlas Vector Search or another vector index if chunks per document or users grow significantly.
+   Current vector search streams chunks with a MongoDB cursor and keeps only a capped candidate set in memory. Hybrid search retrieves a wider candidate set before RRF, then returns final top-K. Acceptable for small/medium per-document chunk sets. Revisit with Atlas Vector Search or another vector index if chunks per document or users grow significantly.

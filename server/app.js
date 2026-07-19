@@ -2,8 +2,9 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const rateLimit = require('express-rate-limit');
 const errorHandler = require('./middleware/errorHandler');
+const { apiLimiter } = require('./middleware/rateLimiters');
+const requestLogger = require('./middleware/requestLogger');
 const { getCorsOrigin } = require('./config/cors');
 const authRoutes = require('./routes/authRoutes');
 const documentRoutes = require('./routes/documentRoutes');
@@ -11,6 +12,7 @@ const chatRoutes = require('./routes/chatRoutes');
 const sessionRoutes = require('./routes/sessionRoutes');
 
 const app = express();
+app.set('trust proxy', 1);
 
 // --------------- Global Middleware ---------------
 
@@ -26,15 +28,8 @@ app.use(
 // Body parsers
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(requestLogger);
 
-// Rate limiting
-const apiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, error: 'Too many requests, please try again later.' },
-});
 app.use('/api/', apiLimiter);
 
 // --------------- Routes ---------------

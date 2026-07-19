@@ -139,6 +139,8 @@ For the current no-Docker deployment, the frontend can be deployed from `client/
 | `server/worker.js` | BullMQ worker entry point. Connects MongoDB and Redis, consumes document-processing jobs, and calls `processDocument`. |
 | `server/startAll.js` | Local helper to start multiple app processes together. |
 | `server/uploads/` | Local upload directory used when `UPLOAD_STORAGE=local`. In production, GridFS is preferred when API and worker are separate. |
+| `server/middleware/rateLimiters.js` | Global API limiter plus stricter auth, upload, and chat limiters. |
+| `server/middleware/requestLogger.js` | Adds request IDs, response headers, duration/status logs, and basic request traceability. |
 
 ### Server Config
 
@@ -249,10 +251,11 @@ From `client/package.json`:
 | Auth forms | Zod validates name, email, password, and confirm-password on the frontend. |
 | Auth API | Backend Zod validation normalizes name/email, limits passwords, handles duplicate email races, and keeps login errors generic. |
 | Token parsing | `auth.js` accepts case-insensitive `Bearer` and trims extra spaces. |
-| Upload | PDF/DOCX/TXT only, 20 MB max, empty files rejected, invalid `sessionId` rejected, rejected local uploads cleaned up. |
+| Upload | PDF/DOCX/TXT only, 20 MB max, empty files rejected, invalid `sessionId` rejected, rejected local uploads cleaned up, duplicate uploads deduped by file hash. |
 | Processing | Stale errors/chunk counts are cleared at processing start; empty text/chunks and embedding mismatches fail clearly. |
 | Retry | Retry is blocked while status is `uploaded`, `parsing`, `chunking`, or `embedding`. |
-| Chat | IDs are validated before SSE, questions are trimmed and capped by `MAX_QUESTION_LENGTH`, and SSE errors stop the assistant loading state. |
+| Chat | IDs are validated before SSE, questions are trimmed and capped by `MAX_QUESTION_LENGTH`, SSE errors stop the assistant loading state, and disconnects stop at safe backend checkpoints. |
+| Retrieval | Hybrid search uses capped 2K candidate expansion before RRF and skips invalid/mismatched embeddings. |
 | Delete | Document delete is blocked after chat has started for that document/session. |
 
 ## Environment Variables
@@ -350,10 +353,22 @@ Interview explanation:
 | `RAG_TOP_K_DEFAULT` | Number of chunks retrieved for normal questions. |
 | `RAG_TOP_K_BROAD` | Number of chunks retrieved for broad summary-style questions. |
 | `RAG_TOP_K_COMPARE` | Number of chunks retrieved for comparison questions. |
+| `RAG_CANDIDATE_MULTIPLIER` | Candidate multiplier before RRF. With `2`, vector search and text search each retrieve `2 * topK` candidates before final fusion. |
+| `RAG_MAX_SEARCH_CANDIDATES` | Safety cap for each retrieval leg before RRF. |
 | `ENABLE_QUERY_REWRITE` | Enables follow-up query rewriting. |
 | `ENABLE_HYDE` | Enables HyDE retrieval for short/vague questions. |
 | `ENABLE_HYBRID_SEARCH` | Enables vector + keyword hybrid retrieval. If false, retrieval uses vector search only. |
 | `MAX_QUESTION_LENGTH` | Maximum accepted chat question length. Default is `4000` characters. |
+
+### Rate Limit / Upload Safety Environment
+
+| Variable | Meaning |
+| --- | --- |
+| `UPLOAD_IDEMPOTENCY_WINDOW_MS` | Recent-upload duplicate window for same user/file when no session is provided. Same-session duplicate uploads are deduped by file hash. |
+| `API_RATE_LIMIT_WINDOW_MS` / `API_RATE_LIMIT_MAX` | Global API request limit. |
+| `AUTH_RATE_LIMIT_WINDOW_MS` / `AUTH_RATE_LIMIT_MAX` | Signup/signin-specific limit. |
+| `UPLOAD_RATE_LIMIT_WINDOW_MS` / `UPLOAD_RATE_LIMIT_MAX` | Document upload-specific limit. |
+| `CHAT_RATE_LIMIT_WINDOW_MS` / `CHAT_RATE_LIMIT_MAX` | Chat/LLM request-specific limit. |
 
 ### Client Environment
 

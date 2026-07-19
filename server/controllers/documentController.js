@@ -1,3 +1,6 @@
+const fs = require('fs/promises');
+const crypto = require('crypto');
+const path = require('path');
 const Document = require('../models/Document');
 const Session = require('../models/Session');
 const Chunk = require('../models/Chunk');
@@ -17,6 +20,9 @@ const { isValidObjectId } = require('../utils/objectId');
 const CHUNK_INSERT_BATCH_SIZE = parseInt(process.env.CHUNK_INSERT_BATCH_SIZE, 10) || 500;
 const PROCESSING_STATUSES = ['uploaded', 'parsing', 'chunking', 'embedding'];
 const PREVIEW_TEXT_LIMIT = 30000;
+const UPLOAD_IDEMPOTENCY_WINDOW_MS =
+  parseInt(process.env.UPLOAD_IDEMPOTENCY_WINDOW_MS, 10) || 5 * 60 * 1000;
+const ALLOWED_EXTENSIONS = new Set(['.pdf', '.docx', '.txt']);
 
 function normalizePreviewText(value = '') {
   return value.replace(/\s+/g, ' ').trim();
@@ -61,6 +67,46 @@ async function cleanupRejectedUpload(file) {
   );
 }
 
+async function getUploadedFileBuffer(file) {
+  if (Buffer.isBuffer(file?.buffer)) return file.buffer;
+  if (file?.path) return fs.readFile(file.path);
+  throw new Error('Uploaded file content is unavailable.');
+}
+
+async function hashUploadedFile(file) {
+  const buffer = await getUploadedFileBuffer(file);
+  return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
+function validateOriginalFileName(fileName) {
+  const originalName = typeof fileName === 'string' ? fileName.trim() : '';
+  if (!originalName) return 'Uploaded file must have a valid file name.';
+  if (originalName.length > 255) return 'File name is too long.';
+  if (!ALLOWED_EXTENSIONS.has(path.extname(originalName).toLowerCase())) {
+    return 'Unsupported file extension. Allowed: PDF, DOCX, TXT.';
+  }
+  return null;
+}
+
+async function findDuplicateDocument({ userId, sessionId, fileHash, originalName, fileSize }) {
+  if (!fileHash) return null;
+
+  const query = {
+    userId,
+    fileHash,
+    originalName,
+    fileSize,
+  };
+
+  if (sessionId) {
+    query.sessionId = sessionId;
+  } else {
+    query.createdAt = { $gte: new Date(Date.now() - UPLOAD_IDEMPOTENCY_WINDOW_MS) };
+  }
+
+  return Document.findOne(query).sort({ createdAt: -1 });
+}
+
 /**
  * POST /api/documents/upload
  * Upload a document and trigger async processing.
@@ -76,6 +122,12 @@ async function uploadDocument(req, res, next) {
     }
 
     const { originalname, mimetype, size } = req.file;
+    const fileNameError = validateOriginalFileName(originalname);
+    if (fileNameError) {
+      await cleanupRejectedUpload(req.file);
+      return res.status(400).json({ success: false, error: fileNameError });
+    }
+
     if (!Number.isFinite(size) || size <= 0) {
       await cleanupRejectedUpload(req.file);
       return res.status(400).json({ success: false, error: 'Uploaded file is empty.' });
@@ -99,6 +151,30 @@ async function uploadDocument(req, res, next) {
       }
     }
 
+    const fileHash = await hashUploadedFile(req.file);
+    const duplicateDoc = await findDuplicateDocument({
+      userId: req.user.id,
+      sessionId: session?._id || null,
+      fileHash,
+      originalName: originalname,
+      fileSize: size,
+    });
+
+    if (duplicateDoc) {
+      await cleanupRejectedUpload(req.file);
+      return res.status(200).json({
+        success: true,
+        duplicate: true,
+        data: {
+          id: duplicateDoc._id,
+          sessionId: duplicateDoc.sessionId,
+          originalName: duplicateDoc.originalName,
+          status: duplicateDoc.status,
+          fileSize: duplicateDoc.fileSize,
+        },
+      });
+    }
+
     storedFile = await saveUploadedFile(req.file);
 
     if (!session) {
@@ -118,6 +194,7 @@ async function uploadDocument(req, res, next) {
       storageKey: storedFile.storageKey,
       mimeType: mimetype,
       fileSize: size,
+      fileHash,
       filePath: storedFile.filePath,
       status: 'uploaded',
     });

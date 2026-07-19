@@ -117,6 +117,7 @@ async function streamChatResponse({ req, res, question, conversationId, chatPara
       conversationId: normalizedConversationId || null,
       question: trimmedQuestion,
       ...chatParams,
+      shouldContinue: () => isClientConnected,
       onChunk(text) {
         if (isClientConnected) {
           res.write(`data: ${JSON.stringify({ type: 'token', content: text })}\n\n`);
@@ -142,6 +143,10 @@ async function streamChatResponse({ req, res, question, conversationId, chatPara
       res.end();
     }
   } catch (err) {
+    if (err.code === 'CLIENT_DISCONNECTED') {
+      return;
+    }
+
     console.error('Chat error:', err);
     if (isClientConnected) {
       res.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);

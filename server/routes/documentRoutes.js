@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const upload = require('../middleware/upload');
 const requireAuth = require('../middleware/auth');
+const { uploadLimiter } = require('../middleware/rateLimiters');
 const {
   uploadDocument,
   listDocuments,
@@ -16,7 +17,7 @@ const router = Router();
 router.use(requireAuth);
 
 // POST /api/documents/upload  — Upload a document (PDF, DOCX, TXT)
-router.post('/upload', upload.single('document'), uploadDocument);
+router.post('/upload', uploadLimiter, upload.single('document'), uploadDocument);
 
 // GET /api/documents  — List all documents
 router.get('/', listDocuments);

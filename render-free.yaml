@@ -79,12 +79,26 @@ services:
         value: "12"
       - key: RAG_TOP_K_COMPARE
         value: "14"
+      - key: RAG_CANDIDATE_MULTIPLIER
+        value: "2"
+      - key: RAG_MAX_SEARCH_CANDIDATES
+        value: "50"
       - key: ENABLE_QUERY_REWRITE
         value: "true"
       - key: ENABLE_HYDE
         value: "true"
       - key: ENABLE_HYBRID_SEARCH
         value: "true"
+      - key: UPLOAD_IDEMPOTENCY_WINDOW_MS
+        value: "300000"
+      - key: API_RATE_LIMIT_MAX
+        value: "60"
+      - key: AUTH_RATE_LIMIT_MAX
+        value: "20"
+      - key: UPLOAD_RATE_LIMIT_MAX
+        value: "10"
+      - key: CHAT_RATE_LIMIT_MAX
+        value: "20"
 
   - type: keyvalue
     name: talk-to-my-doc-redis

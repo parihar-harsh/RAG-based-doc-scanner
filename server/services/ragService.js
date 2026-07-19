@@ -227,7 +227,18 @@ async function chat({
   question,
   onChunk,
   onDone,
+  shouldContinue,
 }) {
+  function assertClientConnected() {
+    if (typeof shouldContinue === 'function' && !shouldContinue()) {
+      const err = new Error('Client disconnected.');
+      err.code = 'CLIENT_DISCONNECTED';
+      throw err;
+    }
+  }
+
+  assertClientConnected();
+
   // 1. Load document/session info
   let documents = [];
   let conversationScope = {};
@@ -290,6 +301,7 @@ async function chat({
   const questionType = classifyQuestion(question);
   const retrievalQuestion = await rewriteQuestionForRetrieval(question, memory, documentName);
   const topK = chooseTopK(questionType, documents.length);
+  assertClientConnected();
 
   // 5. Optionally run HyDE
   let textToEmbed = retrievalQuestion;
@@ -304,6 +316,7 @@ async function chat({
 
   // 6. Embed query
   const queryEmbedding = await embedText(textToEmbed);
+  assertClientConnected();
 
   // 7. Run hybrid search
   const searchResults = await hybridSearch(documentIds, retrievalQuestion, queryEmbedding, {
@@ -319,6 +332,7 @@ async function chat({
   if (searchResults.length === 0) {
     throw new Error('This document has no searchable content yet. Retry processing or upload a different file.');
   }
+  assertClientConnected();
 
   // 8. Build prompt
   const { systemInstruction, contents } = buildPrompt({
@@ -344,6 +358,7 @@ async function chat({
       const result = await model.generateContentStream({ contents });
 
       for await (const chunk of result.stream) {
+        assertClientConnected();
         const text = chunk.text();
         if (text) {
           fullResponse += text;
@@ -386,7 +401,8 @@ async function chat({
   return {
     answer: fullResponse,
     conversationId: conversation._id.toString(),
-    sources: searchResults.map((r) => ({
+    sources: searchResults.map((r, index) => ({
+      sourceLabel: `Source ${index + 1}`,
       text: r.chunk.text.slice(0, 300),
       score: parseFloat(r.score.toFixed(3)),
       chunkIndex: r.chunk.chunkIndex,

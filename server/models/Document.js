@@ -41,6 +41,11 @@ const documentSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    fileHash: {
+      type: String,
+      default: null,
+      index: true,
+    },
     filePath: {
       type: String,
       default: null,
@@ -76,5 +81,7 @@ const documentSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+documentSchema.index({ userId: 1, sessionId: 1, fileHash: 1 });
 
 module.exports = mongoose.model('Document', documentSchema);

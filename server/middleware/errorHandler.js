@@ -21,6 +21,20 @@ function errorHandler(err, _req, res, _next) {
     });
   }
 
+  if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+    return res.status(400).json({
+      success: false,
+      error: 'Unexpected file field. Upload the document using the "document" field.',
+    });
+  }
+
+  if (err.name === 'MulterError') {
+    return res.status(400).json({
+      success: false,
+      error: err.message || 'Invalid file upload.',
+    });
+  }
+
   // Multer / validation errors thrown with a message
   if (err.message && err.message.startsWith('Unsupported file type')) {
     return res.status(415).json({

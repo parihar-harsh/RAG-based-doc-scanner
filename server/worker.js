@@ -17,8 +17,12 @@ async function startWorker() {
   const worker = new Worker(
     QUEUE_NAME,
     async (job) => {
-      const { documentId } = job.data;
+      const { documentId, userId } = job.data;
       if (!documentId) throw new Error('Missing documentId in job payload.');
+
+      console.log(
+        `▶️ Document job started: ${job.id} doc=${documentId} user=${userId || 'unknown'} attempt=${job.attemptsMade + 1}`
+      );
 
       await processDocument(documentId, {
         throwOnError: true,
@@ -38,11 +42,14 @@ async function startWorker() {
   );
 
   worker.on('completed', (job) => {
-    console.log(`✅ Document job completed: ${job.id}`);
+    console.log(`✅ Document job completed: ${job.id} attempts=${job.attemptsMade + 1}`);
   });
 
   worker.on('failed', (job, err) => {
-    console.error(`❌ Document job failed: ${job?.id}`, err.message);
+    console.error(
+      `❌ Document job failed: ${job?.id} attempts=${job?.attemptsMade || 0}`,
+      err.message
+    );
   });
 
   console.log(`👷 Document worker running (concurrency=${WORKER_CONCURRENCY})`);
