@@ -153,7 +153,7 @@ sequenceDiagram
   Worker->>Uploads: Read uploaded file
   Worker->>Mongo: Set status parsing
   Worker->>Redis: job.updateProgress parsing
-  Worker->>Gemini: Embed sentences for semantic chunking
+  Worker->>Gemini: Embed semantic units for chunking
   Worker->>Mongo: Set status chunking
   Worker->>Redis: job.updateProgress chunking
   Worker->>Gemini: Embed final chunks
@@ -162,7 +162,7 @@ sequenceDiagram
   Worker->>Redis: job.updateProgress ready
 
   API->>Redis: QueueEvents listens for job progress
-  API-->>Browser: Socket.io processing updates
+  API-->>Browser: Authenticated Socket.io processing updates for joined document rooms
 
   User->>Browser: Ask a question
   Browser->>API: POST /api/chat/sessions/:sessionId
@@ -192,7 +192,7 @@ sequenceDiagram
 13. The worker updates document status to `parsing`, `chunking`, `embedding`, and finally `ready`.
 14. During processing, the worker writes BullMQ job progress to Redis.
 15. The API process listens to BullMQ `QueueEvents` and relays progress to the browser with Socket.io.
-16. For semantic chunking, the worker splits text into sentences, embeds sentences with Gemini, finds cosine-similarity drops, and groups sentences into coherent chunks.
+16. For semantic chunking, the worker splits text into sentences, packs sequential sentence groups into semantic units, embeds those units with Gemini, finds cosine-similarity drops, and groups nearby units into coherent chunks.
 17. The worker embeds the final chunks with Gemini.
 18. The worker stores chunk text, embeddings, token counts, and document processing metadata in MongoDB.
 19. The chatbox unlocks when the selected session has at least one document and every document in that session is `ready`.
@@ -652,7 +652,7 @@ question
 - Chat question max length defaults to 4000 characters.
 - Worker concurrency defaults to `1` to avoid exhausting Gemini quota.
 - Semantic chunking embeds sentence groups called semantic units, not every individual sentence. Tune `SEMANTIC_UNIT_TARGET_TOKENS` and `SEMANTIC_UNIT_MAX_SENTENCES` for cost vs. boundary precision.
-- Retrieval currently computes vector similarity in application code with a MongoDB cursor and top-K heap. For very large deployments, move to MongoDB Atlas Vector Search or another vector index.
+- Retrieval currently computes vector similarity in application code with a MongoDB cursor and capped candidate list, then expands each retrieval leg to `2K` candidates before RRF. For very large deployments, move to MongoDB Atlas Vector Search or another vector index.
 - Scanned/image-only PDFs are not OCR-supported yet.
 - API and worker should use `UPLOAD_STORAGE=gridfs` when deployed as separate services.
 

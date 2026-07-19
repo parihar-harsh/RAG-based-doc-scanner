@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useDoc } from '../context/DocContext';
 import { useAuth } from '../context/AuthContext';
 import useSocket from '../hooks/useSocket';
@@ -19,7 +19,11 @@ import RenameDialog from './RenameDialog';
 export default function DocumentList({ onNewSession, onUploadClick, onSessionSelected }) {
   const { documents, selectedDoc, selectDocument, removeDocument, renameSession } = useDoc();
   const { user, logout } = useAuth();
-  const { getDocumentStatus } = useSocket();
+  const documentIds = useMemo(
+    () => documents.flatMap((session) => (session.documents || []).map((doc) => doc._id)),
+    [documents]
+  );
+  const { getDocumentStatus } = useSocket(documentIds);
   const [query, setQuery] = useState('');
   const [openMenuId, setOpenMenuId] = useState(null);
   const [sessionToDelete, setSessionToDelete] = useState(null);

@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
+import { getAuthToken } from '../services/api';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || '';
 
-export default function useSocket() {
+export default function useSocket(documentIds = []) {
   const socketRef = useRef(null);
   const [status, setStatus] = useState(null);
   const [progress, setProgress] = useState(0);
@@ -13,6 +14,9 @@ export default function useSocket() {
 
   useEffect(() => {
     const socket = io(SOCKET_URL, {
+      auth: {
+        token: getAuthToken(),
+      },
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
@@ -26,18 +30,6 @@ export default function useSocket() {
 
     socket.on('disconnect', () => {
       setConnected(false);
-    });
-
-    socket.on('processing:start', (data) => {
-      setProcessingEvents((prev) => ({
-        ...prev,
-        [data.documentId]: {
-          status: 'processing',
-          phase: 'parsing',
-          progress: 0,
-          documentId: data.documentId,
-        },
-      }));
     });
 
     socket.on('processing:progress', (data) => {
@@ -93,6 +85,15 @@ export default function useSocket() {
       socket.disconnect();
     };
   }, []);
+
+  useEffect(() => {
+    if (!connected || !socketRef.current) return;
+
+    const uniqueIds = [...new Set(documentIds.filter(Boolean))];
+    uniqueIds.forEach((documentId) => {
+      socketRef.current.emit('join-document', documentId);
+    });
+  }, [connected, documentIds]);
 
   const getDocumentStatus = useCallback(
     (documentId) => {

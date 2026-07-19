@@ -519,7 +519,7 @@ What is now suitable:
 
 Remaining bottleneck:
 
-- The semantic chunker still embeds every sentence before final chunking.
+- The semantic chunker embeds semantic units, which are sequential sentence groups, before final chunking.
 - Large documents are cheaper than before because semantic chunking embeds sentence groups, not every single sentence, but they can still consume significant embedding quota.
 - Gemini API quota and model availability remain the limiting factor, especially on free-tier API quota.
 
@@ -533,8 +533,8 @@ Practical assessment:
 
 Recommended next improvements for large documents:
 
-1. Add a non-semantic fallback chunker when embedding quota is hit during sentence embedding.
-2. Do coarse section/paragraph chunking before semantic refinement to reduce sentence embedding volume.
+1. Add a non-semantic fallback chunker when embedding quota is hit during semantic-unit embedding.
+2. Do coarse section/paragraph chunking before semantic refinement to reduce semantic-unit embedding volume.
 3. Cache embeddings by text hash.
 4. Store `embeddingModel`, `embeddingDimensions`, semantic-unit settings, and `chunkerVersion` on each document/chunk.
 5. Add queue rate limiting for Gemini calls.

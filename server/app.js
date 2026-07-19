@@ -21,16 +21,17 @@ app.use(
   cors({
     origin: getCorsOrigin(),
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
+    exposedHeaders: ['X-Request-Id', 'RateLimit', 'RateLimit-Policy', 'RateLimit-Remaining', 'RateLimit-Reset'],
   })
 );
+
+app.use(requestLogger);
+app.use('/api/', apiLimiter);
 
 // Body parsers
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
-app.use(requestLogger);
-
-app.use('/api/', apiLimiter);
 
 // --------------- Routes ---------------
 

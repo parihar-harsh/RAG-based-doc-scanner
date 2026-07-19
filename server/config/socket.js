@@ -1,5 +1,8 @@
 const { Server } = require('socket.io');
 const { getCorsOrigin } = require('./cors');
+const { isValidObjectId } = require('../utils/objectId');
+const { verifyToken } = require('../services/authService');
+const Document = require('../models/Document');
 
 let io = null;
 
@@ -16,12 +19,34 @@ function initSocket(httpServer) {
     },
   });
 
+  io.use((socket, next) => {
+    const token = socket.handshake.auth?.token;
+    if (!token) return next(new Error('Authentication required'));
+
+    try {
+      const payload = verifyToken(token);
+      socket.userId = payload.sub;
+      return next();
+    } catch {
+      return next(new Error('Invalid token'));
+    }
+  });
+
   io.on('connection', (socket) => {
     console.log(`🔌 Socket connected: ${socket.id}`);
 
-    socket.on('join-document', (documentId) => {
-      socket.join(`doc-${documentId}`);
-      console.log(`Socket ${socket.id} joined room doc-${documentId}`);
+    socket.on('join-document', async (documentId) => {
+      if (!isValidObjectId(documentId)) return;
+
+      try {
+        const ownsDocument = await Document.exists({ _id: documentId, userId: socket.userId });
+        if (!ownsDocument) return;
+
+        socket.join(`doc-${documentId}`);
+        console.log(`Socket ${socket.id} joined room doc-${documentId}`);
+      } catch (err) {
+        console.warn(`Socket ${socket.id} could not join doc-${documentId}:`, err.message);
+      }
     });
 
     socket.on('disconnect', () => {
@@ -60,11 +85,11 @@ function emitProgress(documentId, stage, data = {}) {
   };
 
   if (stage === 'ready') {
-    io.emit('processing:complete', payload);
+    io.to(`doc-${documentId}`).emit('processing:complete', payload);
   } else if (stage === 'error') {
-    io.emit('processing:error', { ...payload, error: data.message });
+    io.to(`doc-${documentId}`).emit('processing:error', { ...payload, error: data.message });
   } else {
-    io.emit('processing:progress', payload);
+    io.to(`doc-${documentId}`).emit('processing:progress', payload);
   }
 }
 

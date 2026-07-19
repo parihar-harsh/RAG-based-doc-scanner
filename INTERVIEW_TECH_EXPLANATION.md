@@ -37,7 +37,7 @@ The project has a React/Vite frontend, an Express API server, a BullMQ document 
 | Redis | Queue infrastructure | Stores BullMQ jobs, job states, retries, and progress. It is not the main app database. |
 | BullMQ | Background job queue | Moves document parsing/chunking/embedding out of the upload request and gives retries, backoff, progress, and concurrency control. |
 | Separate Worker | Document processing | Keeps the API responsive while the worker handles long-running parsing and embedding work. |
-| Socket.io Server | Real-time progress relay | API listens to BullMQ QueueEvents and emits document progress to the browser. |
+| Socket.io Server | Real-time progress relay | API listens to BullMQ QueueEvents and emits document progress to authenticated sockets joined to that document room. |
 | Server-Sent Events | Streaming chat responses | Chat is one-way server-to-client token streaming, so SSE is simpler than WebSockets. |
 | JWT | Authentication | Stateless bearer-token auth. Each protected route filters data by `userId`. |
 | Zod | Request validation | Validates and normalizes auth payloads before database or password logic runs. |
@@ -54,13 +54,13 @@ The project has a React/Vite frontend, an Express API server, a BullMQ document 
 | --- | --- |
 | Auth | Signup/signin validates with Zod on both frontend and backend, normalizes email/name, limits password length, handles duplicate email conflicts, and returns generic login errors. |
 | Bearer tokens | The auth middleware accepts case-insensitive `Bearer` and trims extra spaces before JWT verification. |
-| Uploads | The app rejects unsupported types, empty files, oversized files, invalid session IDs, and cleans up rejected local uploads. |
+| Uploads | The app rejects unsupported extensions/MIME types, empty files, oversized files, invalid session IDs, cleans up rejected local uploads, hashes files, and deduplicates same-session or recent duplicate uploads. |
 | Processing | Retry is blocked while a document is already queued or processing; stale errors/chunk counts are cleared before reprocessing; empty chunks and embedding mismatches fail clearly. |
-| Chat | Session/document/conversation IDs are validated before SSE starts, questions are trimmed and length-limited, empty retrieval results produce a clear error, and frontend SSE errors stop the loading message. |
+| Chat/progress | Session/document/conversation IDs are validated before SSE starts, questions are trimmed and length-limited, only READY documents are queried, Socket.IO progress rooms check document ownership, empty retrieval results produce a clear error, and disconnect checkpoints stop work without saving partial assistant answers. |
 
 Interview answer:
 
-"I tried to avoid only handling the happy path. Auth uses Zod on both client and server, upload validates file type/size/session ownership, chat validates IDs before opening the SSE stream, and document processing has guards for empty text, empty chunks, embedding mismatch, and duplicate retry clicks."
+"I tried to avoid only handling the happy path. Auth uses Zod on both client and server, upload validates file type, extension, size, and session ownership, and file hashes prevent accidental duplicate uploads. Chat validates IDs before opening SSE, checks that documents are READY, and stops cleanly if the client disconnects. Document processing has guards for empty text, empty chunks, embedding mismatch, retry cleanup, and duplicate retry clicks."
 
 ## AI / RAG Tech
 
@@ -139,11 +139,13 @@ Interview answer:
 
 ## Strong Interview Explanation
 
-"The most important design decision was making document processing asynchronous. Uploading a document only creates metadata and enqueues a BullMQ job. A worker parses the file, creates semantic chunks, generates embeddings with Gemini, and stores chunks in MongoDB. Redis keeps the queue reliable with retries and progress updates. The API remains responsive, Socket.io shows processing status, and SSE streams the final chat answer token by token. Retrieval uses hybrid search, combining vector similarity with MongoDB text search, then Gemini generates a grounded answer from the retrieved chunks. I also added validation around auth, upload, IDs, retry, and SSE errors so the app handles failure cases predictably."
+"The most important design decision was making document processing asynchronous. Uploading a document stores metadata, applies file-hash duplicate protection, and enqueues a BullMQ job. A worker parses the file, creates semantic chunks, generates embeddings with Gemini, and stores chunks in MongoDB. Redis keeps the queue reliable with retries and progress updates. The API remains responsive, Socket.io shows processing status, and SSE streams the final chat answer token by token. Retrieval uses hybrid search by collecting expanded vector and text candidates, merging them with RRF, and sending only the final grounded context to Gemini. I also added Zod validation, route-specific rate limits, request IDs, retry cleanup, READY checks, and SSE disconnect handling so failure cases are predictable."
 
 ## Limitations To Mention Honestly
 
 - Large documents can still hit Gemini embedding quota.
 - Current vector search scans chunk embeddings in app code; production scale should use Atlas Vector Search or another vector index.
-- More per-user limits, queue rate limiting, and embedding caching would improve production readiness.
+- Upload duplicate protection is hash/window-based, but the API does not yet implement a full `Idempotency-Key` contract for every mutating route.
+- Rate limits currently use the default in-process store; multi-instance production should use a distributed store.
+- More per-user limits, queue rate limiting, retrieval evaluation, observability dashboards, and embedding caching would improve production readiness.
 - The architecture is solid for small and medium documents, but large multi-user production workloads need more retrieval and quota optimizations.
