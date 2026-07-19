@@ -115,16 +115,17 @@ function reciprocalRankFusion(rankedLists, k = 60) {
 async function hybridSearch(documentId, query, queryEmbedding, options = {}) {
   const topK = options.topK || TOP_K;
   const enableHybrid = options.enableHybrid !== undefined ? options.enableHybrid : true;
+  const candidateK = topK * 2;
 
   // Always do vector search
-  const vectorResults = await vectorSearch(documentId, queryEmbedding, topK);
+  const vectorResults = await vectorSearch(documentId, queryEmbedding, candidateK);
 
   if (!enableHybrid) {
     return vectorResults.slice(0, topK);
   }
 
   // Also do text search
-  const textResults = await textSearch(documentId, query, topK);
+  const textResults = await textSearch(documentId, query, candidateK);
 
   // Merge with RRF
   const merged = reciprocalRankFusion([vectorResults, textResults]);
