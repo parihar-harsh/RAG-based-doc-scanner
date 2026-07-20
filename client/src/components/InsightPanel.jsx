@@ -85,10 +85,10 @@ export default function InsightPanel({ source, document: selectedDocument, docum
     : '';
 
   return (
-    <aside className="insight-panel" aria-label={source ? 'Citation evidence' : 'Document preview'}>
+    <aside className="insight-panel" aria-label={source ? 'Retrieved evidence' : 'Document preview'}>
       <header className="insight-panel-header">
         <div>
-          <span>{source ? 'Citation evidence' : 'Document preview'}</span>
+          <span>{source ? 'Retrieved evidence' : 'Document preview'}</span>
           <h2 title={document.originalName}>{document.originalName}</h2>
         </div>
         <button type="button" onClick={onClose} title="Close panel"><X size={18} /></button>

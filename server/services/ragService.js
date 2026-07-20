@@ -30,7 +30,7 @@ const SYSTEM_PROMPT = `You are a careful document assistant for a RAG app. Your 
 Core behavior:
 1. Use the provided sources as the source of truth for anything about this document.
 2. Answer the user's actual question directly first. Then add explanation or supporting details when useful.
-3. Cite the relevant sources naturally, for example: "(Source 2)".
+3. Cite the relevant evidence chunks naturally, for example: "(Evidence 2)".
 4. If multiple sources disagree, point out the disagreement instead of forcing one answer.
 5. If the provided sources are only partially relevant, answer the parts that are supported and clearly say what is missing.
 
@@ -159,8 +159,8 @@ Latest question: ${question}`;
 function buildPrompt({ question, retrievalQuestion, contextChunks, memory, documentName, questionType }) {
   const contextText = contextChunks
     .map((c, i) => {
-      const sourceName = c.documentName ? `, source: ${c.documentName}` : '';
-      return `[Source ${i + 1}] (relevance: ${c.score.toFixed(3)}${sourceName})\n${c.chunk.text}`;
+      const sourceName = c.documentName ? `, document: ${c.documentName}` : '';
+      return `[Evidence ${i + 1}] (relevance: ${c.score.toFixed(3)}${sourceName})\n${c.chunk.text}`;
     })
     .join('\n\n---\n\n');
 
@@ -171,9 +171,9 @@ Question type: ${questionType}
 Retrieval query used: "${retrievalQuestion}"
 
 Citation rules:
-1. Cite sources as "(Source 1)" or "(Source 2, Source 4)".
+1. Cite evidence chunks as "(Evidence 1)" or "(Evidence 2, Evidence 4)".
 2. When multiple documents are present, mention the document name when comparing or distinguishing facts.
-3. If no source supports a claim, do not make that claim.
+3. If no evidence chunk supports a claim, do not make that claim.
 
 --- DOCUMENT CONTEXT ---
 ${contextText}
@@ -402,7 +402,7 @@ async function chat({
     answer: fullResponse,
     conversationId: conversation._id.toString(),
     sources: searchResults.map((r, index) => ({
-      sourceLabel: `Source ${index + 1}`,
+      sourceLabel: `Evidence ${index + 1}`,
       text: r.chunk.text.slice(0, 300),
       score: parseFloat(r.score.toFixed(3)),
       chunkIndex: r.chunk.chunkIndex,
