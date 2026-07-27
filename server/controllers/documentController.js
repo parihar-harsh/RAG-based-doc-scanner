@@ -22,7 +22,12 @@ const PROCESSING_STATUSES = ['uploaded', 'parsing', 'chunking', 'embedding'];
 const PREVIEW_TEXT_LIMIT = 30000;
 const UPLOAD_IDEMPOTENCY_WINDOW_MS =
   parseInt(process.env.UPLOAD_IDEMPOTENCY_WINDOW_MS, 10) || 5 * 60 * 1000;
-const ALLOWED_EXTENSIONS = new Set(['.pdf', '.docx', '.txt']);
+const MIME_EXTENSION_MAP = {
+  'application/pdf': '.pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'text/plain': '.txt',
+};
+const ALLOWED_EXTENSIONS = new Set(Object.values(MIME_EXTENSION_MAP));
 
 function normalizePreviewText(value = '') {
   return value.replace(/\s+/g, ' ').trim();
@@ -88,6 +93,18 @@ function validateOriginalFileName(fileName) {
   return null;
 }
 
+function validateMimeExtensionMatch(fileName, mimeType) {
+  const ext = path.extname(fileName || '').toLowerCase();
+  const expectedExt = MIME_EXTENSION_MAP[mimeType];
+
+  if (!expectedExt) return `Unsupported file type: ${mimeType}. Allowed: PDF, DOCX, TXT.`;
+  if (ext !== expectedExt) {
+    return `File extension does not match MIME type. Expected ${expectedExt} for ${mimeType}.`;
+  }
+
+  return null;
+}
+
 async function findDuplicateDocument({ userId, sessionId, fileHash, originalName, fileSize }) {
   if (!fileHash) return null;
 
@@ -126,6 +143,12 @@ async function uploadDocument(req, res, next) {
     if (fileNameError) {
       await cleanupRejectedUpload(req.file);
       return res.status(400).json({ success: false, error: fileNameError });
+    }
+
+    const mimeExtensionError = validateMimeExtensionMatch(originalname, mimetype);
+    if (mimeExtensionError) {
+      await cleanupRejectedUpload(req.file);
+      return res.status(400).json({ success: false, error: mimeExtensionError });
     }
 
     if (!Number.isFinite(size) || size <= 0) {
