@@ -24,7 +24,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className={`app-layout ${sidebarOpen ? '' : 'app-layout--sidebar-collapsed'}`}>
+    <div className={`app-layout min-h-screen ${sidebarOpen ? '' : 'app-layout--sidebar-collapsed'}`}>
       <button
         className={`sidebar-toggle ${sidebarOpen ? 'sidebar-toggle--open' : 'sidebar-toggle--closed'}`}
         onClick={() => setSidebarOpen(!sidebarOpen)}
