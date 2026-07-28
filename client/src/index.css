@@ -318,7 +318,7 @@ a {
 .sidebar-item-row {
   display: flex;
   width: 100%;
-  align-items: center;
+  align-items: flex-start;
   gap: 9px;
 }
 
@@ -333,16 +333,43 @@ a {
 }
 
 .sidebar-item-name {
+  display: block;
   min-width: 0;
-  flex: 1;
   overflow: hidden;
   font-size: 0.8rem;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.sidebar-item-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.sidebar-item-meta {
+  overflow: hidden;
+  color: #7f8b84;
+  font-size: 0.65rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-item--active .sidebar-item-meta,
+.sidebar-item:hover .sidebar-item-meta {
+  color: #aeb8b2;
+}
+
+.sidebar-item-meta.is-error {
+  color: #ff9b9b;
+}
+
 .status-dot {
   display: inline-block;
+  margin-top: 8px;
   width: 7px;
   height: 7px;
   flex: 0 0 auto;

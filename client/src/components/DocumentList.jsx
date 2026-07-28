@@ -3,6 +3,7 @@ import { useDoc } from '../context/DocContext';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import {
+  Files,
   FileText,
   LogOut,
   MessageSquarePlus,
@@ -14,6 +15,27 @@ import {
 } from 'lucide-react';
 import ConfirmDialog from './ConfirmDialog';
 import RenameDialog from './RenameDialog';
+
+function stripFileExtension(name = '') {
+  return name.replace(/\.[^/.]+$/, '').trim();
+}
+
+function getSessionLabel(session, fallback) {
+  const docs = session.documents || [];
+  const baseTitle = stripFileExtension(session.title || docs[0]?.originalName || fallback);
+
+  if (docs.length <= 1) return baseTitle || fallback;
+  return `${baseTitle || fallback} + ${docs.length - 1}`;
+}
+
+function getSessionMeta(session, isReady, isError) {
+  const count = session.documents?.length || 0;
+  const countLabel = `${count || 0} document${count === 1 ? '' : 's'}`;
+
+  if (isError) return `${countLabel} · Needs attention`;
+  if (isReady) return `${countLabel} · Ready`;
+  return `${countLabel} · Processing`;
+}
 
 export default function DocumentList({ onNewSession, onUploadClick, onSessionSelected }) {
   const { documents, selectedDoc, selectDocument, removeDocument, renameSession } = useDoc();
@@ -102,6 +124,10 @@ export default function DocumentList({ onNewSession, onUploadClick, onSessionSel
             const statuses = sessionDocuments.map((doc) => doc.status);
             const isReady = statuses.length > 0 && statuses.every((status) => status === 'ready');
             const isError = statuses.some((status) => status === 'error') || session.status === 'error';
+            const fallbackTitle = `Session ${documents.length - index}`;
+            const sessionLabel = getSessionLabel(session, fallbackTitle);
+            const sessionMeta = getSessionMeta(session, isReady, isError);
+            const SessionIcon = sessionDocuments.length > 1 ? Files : FileText;
 
             return (
               <div
@@ -113,9 +139,14 @@ export default function DocumentList({ onNewSession, onUploadClick, onSessionSel
                 }}
               >
                 <div className="sidebar-item-row">
-                  <span className="sidebar-item-icon"><FileText size={15} /></span>
-                  <span className="sidebar-item-name">
-                    {session.title || `Session ${documents.length - index}`}
+                  <span className="sidebar-item-icon"><SessionIcon size={15} /></span>
+                  <span className="sidebar-item-copy">
+                    <span className="sidebar-item-name" title={sessionLabel}>
+                      {sessionLabel}
+                    </span>
+                    <span className={isError ? 'sidebar-item-meta is-error' : 'sidebar-item-meta'}>
+                      {sessionMeta}
+                    </span>
                   </span>
                   {isReady && <span className="status-dot status-dot--ready" />}
                   {isError && <span className="status-dot status-dot--error" />}
