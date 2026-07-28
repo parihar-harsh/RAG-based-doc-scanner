@@ -19,7 +19,7 @@
 - Upload validation for type, empty files, max size, and bad session IDs
 - Persistent Redis/BullMQ queue for document processing
 - Separate document worker with controlled concurrency and retries
-- Real-time processing progress relayed through Socket.io
+- Real-time processing progress relayed through authenticated SSE streams
 - Semantic chunking using Gemini embeddings and cosine similarity breakpoints
 - HyDE query expansion
 - Follow-up query rewriting for retrieval
@@ -51,7 +51,7 @@
 | AI/LLM | Gemini API |
 | Embeddings | `gemini-embedding-2`, 768 dimensions |
 | Chat | `gemini-3.5-flash` primary, fallback models configured |
-| Real-time | Socket.io for processing progress, SSE for chat streaming |
+| Real-time | SSE for processing progress and chat streaming |
 | File parsing | `pdf-parse`, `mammoth`, Node `fs` |
 
 ---
@@ -107,7 +107,6 @@ UPLOAD_IDEMPOTENCY_WINDOW_MS=300000
 
 # Client
 VITE_API_URL=http://localhost:5001/api
-VITE_SOCKET_URL=http://localhost:5001
 ```
 
 Important model finding:
@@ -127,12 +126,12 @@ Important model finding:
 server/
 ├── .env
 ├── package.json
-├── server.js                         # API server, DB, Socket.io, queue-event relay
+├── server.js                         # API server, DB, queue-event relay
 ├── worker.js                         # BullMQ document worker
 ├── app.js                            # Express app, CORS, rate limit, routes
 ├── config/
 │   ├── db.js
-│   └── socket.js
+│   └── progressEvents.js
 ├── queues/
 │   └── documentQueue.js              # BullMQ queue, QueueEvents, Redis connections
 ├── models/
@@ -184,7 +183,7 @@ client/
     │   ├── AuthContext.jsx
     │   └── DocContext.jsx
     ├── hooks/
-    │   ├── useSocket.js
+    │   ├── useDocumentProgress.js
     │   └── useSSE.js
     ├── services/
     │   └── api.js                    # Axios auth headers + API helpers
@@ -264,7 +263,7 @@ Progress path:
 Worker job.updateProgress(...)
   -> BullMQ QueueEvents in API process
   -> emitProgress(...)
-  -> Socket.io processing events
+  -> /api/documents/:id/progress SSE stream
   -> client sidebar/progress state
 ```
 
@@ -564,8 +563,8 @@ Recommended next improvements for large documents:
 6. **Chat model fallback**  
    `gemini-3.5-flash` is primary, but fallback handles high-demand 503s.
 
-7. **SSE for chat, Socket.io for processing**  
-   SSE fits one-way streamed chat responses. Socket.io fits real-time processing progress updates.
+7. **SSE for chat and processing progress**
+   Both chat output and document progress are one-way server-to-client updates, so the project uses SSE for both instead of maintaining a separate WebSocket transport.
 
 8. **In-memory vector search for now**  
    Current vector search streams chunks with a MongoDB cursor and keeps only a capped candidate set in memory. Hybrid search retrieves a wider candidate set before RRF, then returns final top-K. Acceptable for small/medium per-document chunk sets. Revisit with Atlas Vector Search or another vector index if chunks per document or users grow significantly.

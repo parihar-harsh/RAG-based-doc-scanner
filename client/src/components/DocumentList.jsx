@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useDoc } from '../context/DocContext';
 import { useAuth } from '../context/AuthContext';
-import useSocket from '../hooks/useSocket';
 import toast from 'react-hot-toast';
 import {
   FileText,
@@ -19,11 +18,6 @@ import RenameDialog from './RenameDialog';
 export default function DocumentList({ onNewSession, onUploadClick, onSessionSelected }) {
   const { documents, selectedDoc, selectDocument, removeDocument, renameSession } = useDoc();
   const { user, logout } = useAuth();
-  const documentIds = useMemo(
-    () => documents.flatMap((session) => (session.documents || []).map((doc) => doc._id)),
-    [documents]
-  );
-  const { getDocumentStatus } = useSocket(documentIds);
   const [query, setQuery] = useState('');
   const [openMenuId, setOpenMenuId] = useState(null);
   const [sessionToDelete, setSessionToDelete] = useState(null);
@@ -105,10 +99,7 @@ export default function DocumentList({ onNewSession, onUploadClick, onSessionSel
           filteredSessions.map((session, index) => {
             const isSelected = selectedDoc?._id === session._id;
             const sessionDocuments = session.documents || [];
-            const statuses = sessionDocuments.map((doc) => {
-              const socketStatus = getDocumentStatus(doc._id);
-              return socketStatus?.status || doc.status;
-            });
+            const statuses = sessionDocuments.map((doc) => doc.status);
             const isReady = statuses.length > 0 && statuses.every((status) => status === 'ready');
             const isError = statuses.some((status) => status === 'error') || session.status === 'error';
 

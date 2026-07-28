@@ -55,7 +55,7 @@ Important Render idea:
 
 The API and worker are separate services. Because they may not share a filesystem, production uses `UPLOAD_STORAGE=gridfs` so both services can access uploaded files through MongoDB GridFS.
 
-For the current no-Docker deployment, the frontend can be deployed from `client/` on Vercel, while the backend API and worker run on Render. The frontend needs `VITE_API_URL` and `VITE_SOCKET_URL`; the backend needs `CLIENT_ORIGIN` set to the final Vercel URL.
+For the current no-Docker deployment, the frontend can be deployed from `client/` on Vercel, while the backend API and worker run on Render. The frontend needs `VITE_API_URL`; the backend needs `CLIENT_ORIGIN` set to the final Vercel URL.
 
 ## Client Files
 
@@ -112,7 +112,7 @@ For the current no-Docker deployment, the frontend can be deployed from `client/
 | File | Meaning |
 | --- | --- |
 | `client/src/hooks/useSSE.js` | Handles streaming chat responses from the backend. Parses streamed token/source/done/error events. |
-| `client/src/hooks/useSocket.js` | Connects to Socket.io and listens for document processing progress. |
+| `client/src/hooks/useDocumentProgress.js` | Opens authenticated SSE streams for document processing progress. |
 
 ### Client Services
 
@@ -134,7 +134,7 @@ For the current no-Docker deployment, the frontend can be deployed from `client/
 | --- | --- |
 | `server/package.json` | Backend dependencies and scripts. Important scripts: `start`, `dev`, `worker`, `worker:dev`, and `start:all`. |
 | `server/package-lock.json` | Locked backend dependency versions. |
-| `server/server.js` | Main API server entry point. Loads env, validates production env, connects MongoDB, creates HTTP server, starts Socket.io, starts queue event relay, and listens on `PORT`. |
+| `server/server.js` | Main API server entry point. Loads env, validates production env, connects MongoDB, creates HTTP server, starts the queue event relay, and listens on `PORT`. |
 | `server/app.js` | Express app setup. Adds CORS, body parsers, rate limiting, health/API routes, optional production frontend serving, 404 handling, and global error handling. Raw uploads are not exposed through a public static route. |
 | `server/worker.js` | BullMQ worker entry point. Connects MongoDB and Redis, consumes document-processing jobs, and calls `processDocument`. |
 | `server/startAll.js` | Local helper to start multiple app processes together. |
@@ -149,7 +149,7 @@ For the current no-Docker deployment, the frontend can be deployed from `client/
 | `server/config/db.js` | Connects to MongoDB through Mongoose. |
 | `server/config/env.js` | Validates required production environment variables. |
 | `server/config/cors.js` | Determines allowed frontend origin for CORS. |
-| `server/config/socket.js` | Initializes Socket.io and provides progress-emitting helpers. |
+| `server/config/progressEvents.js` | Provides the in-process progress event hub used by authenticated SSE progress streams. |
 
 ### Server Routes
 
@@ -377,7 +377,6 @@ These variables are read by Vite and must start with `VITE_` to be exposed to fr
 | Variable | Meaning |
 | --- | --- |
 | `VITE_API_URL` | Backend API base URL used by the browser, for example `http://localhost:5001/api`. |
-| `VITE_SOCKET_URL` | Socket.io server URL, for example `http://localhost:5001`. |
 
 Interview explanation:
 
@@ -411,7 +410,6 @@ Interview explanation:
 ### Frontend Needs
 
 - `VITE_API_URL`
-- `VITE_SOCKET_URL`
 
 ## Interview-Friendly File Flow
 
@@ -577,16 +575,16 @@ Files involved:
 | --- | --- |
 | `server/worker.js` | Calls `job.updateProgress`. |
 | `server/queues/documentQueue.js` | Listens to BullMQ QueueEvents in the API process. |
-| `server/config/socket.js` | Emits progress events through Socket.io. |
-| `server/server.js` | Initializes Socket.io when the API server starts. |
-| `client/src/hooks/useSocket.js` | Connects browser to Socket.io. |
+| `server/config/progressEvents.js` | Emits progress events to subscribed SSE responses. |
+| `server/controllers/documentController.js` | Serves `/api/documents/:id/progress` as an authenticated SSE endpoint. |
+| `client/src/hooks/useDocumentProgress.js` | Connects browser to document progress SSE streams. |
 | `client/src/context/DocContext.jsx` | Refreshes or updates selected document/session state. |
 | `client/src/components/ChatWindow.jsx` | Shows progress labels, retry button, delete button, and ready state. |
 | `client/src/components/DocumentList.jsx` | Shows session/document status in sidebar. |
 
 Interview explanation:
 
-"The worker updates BullMQ progress, the API relays it through Socket.io, and the React UI updates the session status."
+"The worker updates BullMQ progress, the API relays it through authenticated SSE progress streams, and the React UI updates the session status."
 
 ### 8. User Asks A Question
 
@@ -708,7 +706,7 @@ Interview explanation:
 4. User uploads document: `UploadModal.jsx` -> `api.js` -> `documentRoutes.js` -> `upload.js` -> `objectId.js` -> `documentController.js`.
 5. Backend queues job: `documentController.js` -> `fileStorageService.js` -> `Document.js` -> `documentQueue.js` -> Redis.
 6. Worker processes document: `worker.js` -> `processDocument` -> `parserService.js` -> `chunkerService.js` -> `embeddingService.js` -> `Chunk.js`.
-7. User sees progress: worker progress -> `documentQueue.js` -> `socket.js` -> `useSocket.js` -> UI.
+7. User sees progress: worker progress -> `documentQueue.js` -> `progressEvents.js` -> `/api/documents/:id/progress` -> `useDocumentProgress.js` -> UI.
 8. User asks question: `ChatWindow.jsx` -> `useSSE.js` -> `chatRoutes.js` -> `chatController.js`.
 9. RAG retrieves context: `ragService.js` -> `hydeService.js` -> `embeddingService.js` -> `searchService.js` -> `Chunk.js`.
 10. Answer streams back: Gemini -> `ragService.js` -> `chatController.js` -> `useSSE.js` -> `MessageBubble.jsx`.
@@ -725,7 +723,7 @@ Upload:
 7. `worker.js` consumes the job.
 8. `parserService.js`, `chunkerService.js`, and `embeddingService.js` process the file.
 9. `Chunk.js` stores chunk text and vectors.
-10. `socket.js` and `useSocket.js` update the UI.
+10. `progressEvents.js` and `useDocumentProgress.js` update the UI.
 
 Chat:
 

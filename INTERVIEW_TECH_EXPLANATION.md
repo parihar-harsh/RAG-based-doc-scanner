@@ -18,8 +18,7 @@ The project has a React/Vite frontend, an Express API server, a BullMQ document 
 | Vite | Frontend dev server and production build | Fast local development, hot reload, and simple static build output that Express can serve in production. |
 | React Router | Client-side page flow | Keeps authenticated and unauthenticated screens organized without full page reloads. |
 | Axios | Normal REST API calls | Centralized API client, easy JWT headers, and upload progress support for multipart file uploads. |
-| Fetch | Streaming chat requests | Gives direct access to streamed response bodies for SSE-style token streaming. |
-| Socket.io Client | Processing progress updates | Receives real-time document status such as parsing, chunking, embedding, ready, and error. |
+| Fetch | Streaming chat and progress requests | Gives direct access to streamed response bodies for SSE-style token streaming and document-progress updates. |
 | react-dropzone | File selection/upload UX | Makes drag-and-drop document upload easier to implement. |
 | react-hot-toast | Toast notifications | Shows upload, delete, retry, and error feedback in the UI. |
 | react-markdown | Assistant answer rendering | Lets AI answers render Markdown like bullets, code, and formatted text. |
@@ -37,8 +36,7 @@ The project has a React/Vite frontend, an Express API server, a BullMQ document 
 | Redis | Queue infrastructure | Stores BullMQ jobs, job states, retries, and progress. It is not the main app database. |
 | BullMQ | Background job queue | Moves document parsing/chunking/embedding out of the upload request and gives retries, backoff, progress, and concurrency control. |
 | Separate Worker | Document processing | Keeps the API responsive while the worker handles long-running parsing and embedding work. |
-| Socket.io Server | Real-time progress relay | API listens to BullMQ QueueEvents and emits document progress to authenticated sockets joined to that document room. |
-| Server-Sent Events | Streaming chat responses | Chat is one-way server-to-client token streaming, so SSE is simpler than WebSockets. |
+| Server-Sent Events | Streaming chat responses and document progress | Chat and document progress are both one-way server-to-client streams, so SSE keeps the real-time layer simpler than maintaining a separate WebSocket transport. |
 | JWT | Authentication | Stateless bearer-token auth. Each protected route filters data by `userId`. |
 | Zod | Request validation | Validates and normalizes auth payloads before database or password logic runs. |
 | Password Hashing | Secure password storage | Passwords are never stored in plaintext; login verifies against the hash. |
@@ -56,7 +54,7 @@ The project has a React/Vite frontend, an Express API server, a BullMQ document 
 | Bearer tokens | The auth middleware accepts case-insensitive `Bearer` and trims extra spaces before JWT verification. |
 | Uploads | The app rejects unsupported extensions/MIME types, empty files, oversized files, invalid session IDs, cleans up rejected local uploads, hashes files, and deduplicates same-session or recent duplicate uploads. |
 | Processing | Retry is blocked while a document is already queued or processing; stale errors/chunk counts are cleared before reprocessing; empty chunks and embedding mismatches fail clearly. |
-| Chat/progress | Session/document/conversation IDs are validated before SSE starts, questions are trimmed and length-limited, only READY documents are queried, Socket.IO progress rooms check document ownership, empty retrieval results produce a clear error, and disconnect checkpoints stop work without saving partial assistant answers. |
+| Chat/progress | Session/document/conversation IDs are validated before SSE starts, questions are trimmed and length-limited, only READY documents are queried, document progress streams check document ownership, empty retrieval results produce a clear error, and disconnect checkpoints stop work without saving partial assistant answers. |
 
 Interview answer:
 
@@ -134,12 +132,12 @@ Interview answer:
 | Docker | Packaging API/frontend and worker | Gives repeatable builds and supports separate production services. |
 | Render YAML | Deployment configuration | Defines API, worker, environment variables, and service settings as config. |
 | Render | Backend deployment | Hosts the Express API, BullMQ worker/background process, and Redis/Key Value service. |
-| Vercel | Frontend deployment | Hosts the static Vite frontend and injects `VITE_API_URL` / `VITE_SOCKET_URL` at build time. |
+| Vercel | Frontend deployment | Hosts the static Vite frontend and injects `VITE_API_URL` at build time. |
 | Environment Variables | Runtime configuration | Keeps secrets and deployment-specific settings outside source code. |
 
 ## Strong Interview Explanation
 
-"The most important design decision was making document processing asynchronous. Uploading a document stores metadata, applies file-hash duplicate protection, and enqueues a BullMQ job. A worker parses the file, creates semantic chunks, generates embeddings with Gemini, and stores chunks in MongoDB. Redis keeps the queue reliable with retries and progress updates. The API remains responsive, Socket.io shows processing status, and SSE streams the final chat answer token by token. Retrieval uses hybrid search by collecting expanded vector and text candidates, merging them with RRF, and sending only the final grounded context to Gemini. I also added Zod validation, route-specific rate limits, request IDs, retry cleanup, READY checks, and SSE disconnect handling so failure cases are predictable."
+"The most important design decision was making document processing asynchronous. Uploading a document stores metadata, applies file-hash duplicate protection, and enqueues a BullMQ job. A worker parses the file, creates semantic chunks, generates embeddings with Gemini, and stores chunks in MongoDB. Redis keeps the queue reliable with retries and progress updates. The API remains responsive, authenticated SSE streams show processing status, and SSE also streams the final chat answer token by token. Retrieval uses hybrid search by collecting expanded vector and text candidates, merging them with RRF, and sending only the final grounded context to Gemini. I also added Zod validation, route-specific rate limits, request IDs, retry cleanup, READY checks, and SSE disconnect handling so failure cases are predictable."
 
 ## Limitations To Mention Honestly
 

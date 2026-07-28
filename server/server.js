@@ -4,7 +4,6 @@ const http = require('http');
 const app = require('./app');
 const connectDB = require('./config/db');
 const { validateRuntimeEnv } = require('./config/env');
-const { initSocket } = require('./config/socket');
 const { startDocumentQueueEventRelay } = require('./queues/documentQueue');
 
 const PORT = process.env.PORT || 5000;
@@ -18,8 +17,6 @@ async function start() {
   // Create HTTP server from Express app
   const server = http.createServer(app);
 
-  // Attach Socket.io
-  initSocket(server);
   startDocumentQueueEventRelay();
 
   server.listen(PORT, () => {

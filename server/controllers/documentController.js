@@ -13,7 +13,7 @@ const {
 } = require('../services/fileStorageService');
 const { semanticChunk } = require('../services/chunkerService');
 const { embedBatch } = require('../services/embeddingService');
-const { emitProgress } = require('../config/socket');
+const { emitProgress, subscribeDocumentProgress } = require('../config/progressEvents');
 const { addDocumentProcessingJob, retryDocumentProcessingJob } = require('../queues/documentQueue');
 const { isValidObjectId } = require('../utils/objectId');
 
@@ -562,6 +562,65 @@ async function getDocumentFile(req, res, next) {
   }
 }
 
+async function streamDocumentProgress(req, res, next) {
+  try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, error: 'Invalid document ID.' });
+    }
+
+    const doc = await Document.findOne({ _id: req.params.id, userId: req.user.id }).lean();
+    if (!doc) {
+      return res.status(404).json({ success: false, error: 'Document not found.' });
+    }
+
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.flushHeaders?.();
+
+    const send = (payload) => {
+      if (!res.writableEnded) {
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      }
+    };
+
+    send({
+      documentId: doc._id.toString(),
+      status: doc.status === 'ready' || doc.status === 'error' ? doc.status : 'processing',
+      phase: doc.status,
+      message: doc.errorMessage || null,
+      timestamp: new Date().toISOString(),
+    });
+
+    if (doc.status === 'ready' || doc.status === 'error') {
+      res.end();
+      return;
+    }
+
+    const unsubscribe = subscribeDocumentProgress(doc._id, (payload) => {
+      send(payload);
+      if (payload.phase === 'ready' || payload.phase === 'error') {
+        unsubscribe();
+        res.end();
+      }
+    });
+
+    const heartbeat = setInterval(() => {
+      if (!res.writableEnded) res.write(': keep-alive\n\n');
+    }, 25000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function hasChatAfterDocumentUpload(doc, userId) {
   const scope = doc.sessionId
     ? [{ sessionId: doc.sessionId }, { documentId: doc._id }]
@@ -699,6 +758,7 @@ module.exports = {
   getDocument,
   getDocumentPreview,
   getDocumentFile,
+  streamDocumentProgress,
   retryDocument,
   deleteDocument,
 };

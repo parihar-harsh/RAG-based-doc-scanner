@@ -13,7 +13,7 @@ The app uses React/Vite on the frontend, Express/MongoDB on the backend, Redis/B
 - Client and server upload validation for file type, empty files, and 20 MB max size
 - Persistent Redis/BullMQ document-processing queue
 - Separate worker process for parsing, semantic chunking, and embeddings
-- Real-time document processing updates through Socket.io
+- Real-time document processing updates through authenticated Server-Sent Events
 - Chat streaming through Server-Sent Events
 - Semantic chunking with Gemini embeddings and cosine-similarity breakpoints
 - Hybrid retrieval with vector similarity, MongoDB text search, and RRF fusion
@@ -39,7 +39,7 @@ The app uses React/Vite on the frontend, Express/MongoDB on the backend, Redis/B
 | Backend | Node.js, Express |
 | Database | MongoDB Atlas, Mongoose |
 | Queue | Redis, BullMQ |
-| Realtime | Socket.io, SSE |
+| Realtime | SSE for chat streaming and document progress |
 | Auth | JWT bearer tokens, hashed passwords, Zod validation |
 | AI | Google Gemini API |
 | Embeddings | `gemini-embedding-2` |
@@ -59,7 +59,7 @@ flowchart TB
   subgraph APIContainer[API and frontend container]
     Static[Express serves built React files]
     API[Express API routes]
-    Realtime[Socket.io and SSE]
+    Realtime[SSE streams]
     QueueRelay[BullMQ QueueEvents relay]
   end
 
@@ -89,9 +89,8 @@ flowchart TB
   Static -->|HTML, CSS, JS| SPA
 
   SPA -->|REST: auth, sessions, upload, chat| API
-  API -->|SSE answer stream| Realtime
+  API -->|SSE answer and progress streams| Realtime
   Realtime -->|tokens and progress events| SPA
-  SPA -->|Socket.io connection| Realtime
 
   API -->|write uploaded file| Uploads
   API -->|create document and session records| MongoStore
@@ -162,7 +161,8 @@ sequenceDiagram
   Worker->>Redis: job.updateProgress ready
 
   API->>Redis: QueueEvents listens for job progress
-  API-->>Browser: Authenticated Socket.io processing updates for joined document rooms
+  Browser->>API: GET /api/documents/:id/progress
+  API-->>Browser: Authenticated SSE processing updates
 
   User->>Browser: Ask a question
   Browser->>API: POST /api/chat/sessions/:sessionId
@@ -191,7 +191,7 @@ sequenceDiagram
 12. The worker extracts text from PDF, DOCX, or TXT.
 13. The worker updates document status to `parsing`, `chunking`, `embedding`, and finally `ready`.
 14. During processing, the worker writes BullMQ job progress to Redis.
-15. The API process listens to BullMQ `QueueEvents` and relays progress to the browser with Socket.io.
+15. The API process listens to BullMQ `QueueEvents` and relays progress to the browser with authenticated SSE streams.
 16. For semantic chunking, the worker splits text into sentences, packs sequential sentence groups into semantic units, embeds those units with Gemini, finds cosine-similarity drops, and groups nearby units into coherent chunks.
 17. The worker embeds the final chunks with Gemini.
 18. The worker stores chunk text, embeddings, token counts, and document processing metadata in MongoDB.
@@ -398,21 +398,18 @@ For separate frontend/backend deployment, set these frontend build variables:
 
 ```env
 VITE_API_URL=https://your-backend-domain.example/api
-VITE_SOCKET_URL=https://your-backend-domain.example
 ```
 
 For local Vite development, create `client/.env` if needed:
 
 ```env
 VITE_API_URL=http://localhost:5001/api
-VITE_SOCKET_URL=http://localhost:5001
 ```
 
 For same-origin Docker/API deployments, keep the Dockerfile defaults:
 
 ```env
 VITE_API_URL=/api
-VITE_SOCKET_URL=
 ```
 
 ## Local Development
@@ -490,7 +487,6 @@ Set frontend build environment variables:
 
 ```env
 VITE_API_URL=https://your-backend-domain.example/api
-VITE_SOCKET_URL=https://your-backend-domain.example
 ```
 
 Set API and worker environment variables from `.env.example`. Important production values:
@@ -544,13 +540,12 @@ Vercel:
 
 ```env
 VITE_API_URL=https://your-render-api.onrender.com/api
-VITE_SOCKET_URL=https://your-render-api.onrender.com
 ```
 
 After both deploys:
 
 - Open `https://your-render-api.onrender.com/api/health` and confirm it returns healthy JSON.
-- In Vercel, trigger a redeploy after setting `VITE_API_URL` and `VITE_SOCKET_URL`.
+- In Vercel, trigger a redeploy after setting `VITE_API_URL`.
 - In Render, confirm the worker logs show `Document worker running`.
 
 ## Docker

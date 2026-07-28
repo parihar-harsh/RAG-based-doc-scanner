@@ -8,6 +8,7 @@ const {
   getDocument,
   getDocumentPreview,
   getDocumentFile,
+  streamDocumentProgress,
   retryDocument,
   deleteDocument,
 } = require('../controllers/documentController');
@@ -24,6 +25,7 @@ router.get('/', listDocuments);
 
 router.get('/:id/preview', getDocumentPreview);
 router.get('/:id/file', getDocumentFile);
+router.get('/:id/progress', streamDocumentProgress);
 
 // GET /api/documents/:id  — Get document details
 router.get('/:id', getDocument);

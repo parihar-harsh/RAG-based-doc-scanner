@@ -1,6 +1,6 @@
 const { Queue, QueueEvents } = require('bullmq');
 const IORedis = require('ioredis');
-const { emitProgress } = require('../config/socket');
+const { emitProgress } = require('../config/progressEvents');
 
 const QUEUE_NAME = 'document-processing';
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
