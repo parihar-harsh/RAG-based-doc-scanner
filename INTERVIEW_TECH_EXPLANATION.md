@@ -69,6 +69,7 @@ Interview answer:
 | `gemini-embedding-2` | Document/query embeddings | Produces vectors used for semantic retrieval. The app uses 768 dimensions to reduce storage and compute. |
 | Semantic Chunking | Splitting documents into meaningful chunks | Keeps related sentences together instead of splitting blindly by character count. |
 | Cosine Similarity | Vector comparison | Ranks chunks by semantic closeness to the user query and helps detect semantic breakpoints during chunking. |
+| Atlas Vector Search | Optional vector retrieval backend | Runs nearest-neighbor vector search inside MongoDB Atlas when the search index is configured, avoiding full app-level scans for larger chunk sets. |
 | MongoDB `$text` Search | Keyword retrieval | Catches exact names, dates, clauses, numbers, and terms that vector search may miss. |
 | Hybrid Search | Vector + keyword retrieval | Improves retrieval quality by combining semantic and exact-match search. |
 | Reciprocal Rank Fusion | Merging search rankings | Combines vector and text results without needing to normalize incompatible scores. |
@@ -137,12 +138,12 @@ Interview answer:
 
 ## Strong Interview Explanation
 
-"The most important design decision was making document processing asynchronous. Uploading a document stores metadata, applies file-hash duplicate protection, and enqueues a BullMQ job. A worker parses the file, creates semantic chunks, generates embeddings with Gemini, and stores chunks in MongoDB. Redis keeps the queue reliable with retries and progress updates. The API remains responsive, authenticated SSE streams show processing status, and SSE also streams the final chat answer token by token. Retrieval uses hybrid search by collecting expanded vector and text candidates, merging them with RRF, and sending only the final grounded context to Gemini. I also added Zod validation, route-specific rate limits, request IDs, retry cleanup, READY checks, and SSE disconnect handling so failure cases are predictable."
+"The most important design decision was making document processing asynchronous. Uploading a document stores metadata, applies file-hash duplicate protection, and enqueues a BullMQ job. A worker parses the file, creates semantic chunks, generates embeddings with Gemini, and stores chunks in MongoDB. Redis keeps the queue reliable with retries and progress updates. The API remains responsive, authenticated SSE streams show processing status, and SSE also streams the final chat answer token by token. Retrieval uses hybrid search by collecting expanded vector and text candidates, merging them with RRF, and sending only the final grounded context to Gemini. The vector leg can use Atlas Vector Search when configured, with the original app-level cosine scan as fallback. I also added Zod validation, route-specific rate limits, request IDs, retry cleanup, READY checks, and SSE disconnect handling so failure cases are predictable."
 
 ## Limitations To Mention Honestly
 
 - Large documents can still hit Gemini embedding quota.
-- Current vector search scans chunk embeddings in app code; production scale should use Atlas Vector Search or another vector index.
+- Atlas Vector Search is implemented as an opt-in path; deployment must create the Atlas search index and set `ENABLE_ATLAS_VECTOR_SEARCH=true`, otherwise retrieval intentionally falls back to the app-level cosine scan.
 - Upload duplicate protection is hash/window-based, but the API does not yet implement a full `Idempotency-Key` contract for every mutating route.
 - Rate limits currently use the default in-process store; multi-instance production should use a distributed store.
 - More per-user limits, queue rate limiting, retrieval evaluation, observability dashboards, and embedding caching would improve production readiness.

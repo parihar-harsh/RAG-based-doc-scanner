@@ -17,6 +17,7 @@ The app uses React/Vite on the frontend, Express/MongoDB on the backend, Redis/B
 - Chat streaming through Server-Sent Events
 - Semantic chunking with Gemini embeddings and cosine-similarity breakpoints
 - Hybrid retrieval with vector similarity, MongoDB text search, and RRF fusion
+- Optional MongoDB Atlas Vector Search for the vector retrieval leg, with app-level cosine fallback
 - HyDE query expansion for better retrieval on vague questions
 - Follow-up query rewriting for better retrieval across conversation turns
 - Dynamic retrieval depth based on question type
@@ -199,7 +200,7 @@ sequenceDiagram
 20. When the user asks a question, the browser posts to `/api/chat/sessions/:sessionId`.
 21. The API loads the session's documents and recent conversation memory from MongoDB.
 22. If HyDE is enabled, the API asks Gemini to generate a hypothetical answer and embeds that for better retrieval.
-23. The API embeds the query, retrieves matching chunks across all documents in the session, and merges vector plus keyword results with RRF.
+23. The API embeds the query, retrieves matching chunks across all documents in the session, and merges vector plus keyword results with RRF. If Atlas Vector Search is enabled, the vector leg runs in MongoDB; otherwise it uses the app-level cosine scan.
 24. The API sends the retrieved context, conversation memory, and user question to Gemini.
 25. Gemini's answer is streamed back to the browser over SSE.
 26. The API saves the user question and assistant answer in MongoDB so the chat reappears when switching sessions.
@@ -377,6 +378,10 @@ RAG_TOP_K_BROAD=12
 RAG_TOP_K_COMPARE=14
 RAG_CANDIDATE_MULTIPLIER=2
 RAG_MAX_SEARCH_CANDIDATES=50
+ENABLE_ATLAS_VECTOR_SEARCH=false
+ATLAS_VECTOR_SEARCH_INDEX=chunk_embedding_vector_index
+ATLAS_VECTOR_NUM_CANDIDATES_MULTIPLIER=20
+ATLAS_VECTOR_MAX_NUM_CANDIDATES=10000
 ENABLE_QUERY_REWRITE=true
 ENABLE_HYDE=true
 ENABLE_HYBRID_SEARCH=true
@@ -411,6 +416,31 @@ For same-origin Docker/API deployments, keep the Dockerfile defaults:
 ```env
 VITE_API_URL=/api
 ```
+
+### Optional Atlas Vector Search
+
+The app can run the vector retrieval leg through MongoDB Atlas Vector Search instead of scanning embeddings in Node.js. Keep `ENABLE_ATLAS_VECTOR_SEARCH=false` until the Atlas search index exists.
+
+Create an Atlas Vector Search index on the `chunks` collection with this shape:
+
+```json
+{
+  "fields": [
+    {
+      "type": "vector",
+      "path": "embedding",
+      "numDimensions": 768,
+      "similarity": "cosine"
+    },
+    {
+      "type": "filter",
+      "path": "documentId"
+    }
+  ]
+}
+```
+
+Use the index name from `ATLAS_VECTOR_SEARCH_INDEX`. If `GEMINI_EMBEDDING_DIMENSIONS` changes, `numDimensions` in the Atlas index must match. After the index is ready, set `ENABLE_ATLAS_VECTOR_SEARCH=true` on the API service.
 
 ## Local Development
 
@@ -647,7 +677,7 @@ question
 - Chat question max length defaults to 4000 characters.
 - Worker concurrency defaults to `1` to avoid exhausting Gemini quota.
 - Semantic chunking embeds sentence groups called semantic units, not every individual sentence. Tune `SEMANTIC_UNIT_TARGET_TOKENS` and `SEMANTIC_UNIT_MAX_SENTENCES` for cost vs. boundary precision.
-- Retrieval currently computes vector similarity in application code with a MongoDB cursor and capped candidate list, then expands each retrieval leg to `2K` candidates before RRF. For very large deployments, move to MongoDB Atlas Vector Search or another vector index.
+- Retrieval can use Atlas Vector Search when the Atlas index is configured and `ENABLE_ATLAS_VECTOR_SEARCH=true`; otherwise it falls back to the original app-level cosine scan with a MongoDB cursor. Each retrieval leg expands to capped candidates before RRF, then returns the final top-K chunks.
 - Scanned/image-only PDFs are not OCR-supported yet.
 - API and worker should use `UPLOAD_STORAGE=gridfs` when deployed as separate services.
 

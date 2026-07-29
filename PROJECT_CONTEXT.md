@@ -25,6 +25,7 @@
 - Follow-up query rewriting for retrieval
 - Dynamic retrieval depth by question type
 - Hybrid search: vector similarity + MongoDB `$text` + RRF fusion
+- Optional Atlas Vector Search for the vector leg, with app-level cosine scan fallback
 - SSE streaming chat responses
 - Structured RAG prompt for direct answers, summaries, comparisons, missing-info handling, and plain-language explanations
 - Document-workspace UI with searchable sessions, horizontal document cards, and responsive mobile navigation
@@ -99,6 +100,10 @@ RAG_TOP_K_BROAD=12
 RAG_TOP_K_COMPARE=14
 RAG_CANDIDATE_MULTIPLIER=2
 RAG_MAX_SEARCH_CANDIDATES=50
+ENABLE_ATLAS_VECTOR_SEARCH=false
+ATLAS_VECTOR_SEARCH_INDEX=chunk_embedding_vector_index
+ATLAS_VECTOR_NUM_CANDIDATES_MULTIPLIER=20
+ATLAS_VECTOR_MAX_NUM_CANDIDATES=10000
 ENABLE_QUERY_REWRITE=true
 ENABLE_HYDE=true
 ENABLE_HYBRID_SEARCH=true
@@ -312,7 +317,8 @@ POST /api/chat/sessions/:sessionId  (SSE)
   -> optional HyDE with helper model
   -> embed query with RETRIEVAL_QUERY task type
   -> hybrid search:
-       vector similarity over chunks from all ready session documents
+       Atlas Vector Search when enabled, otherwise app-level cosine vector scan
+       chunks are filtered to all ready documents in the active session
        MongoDB $text search
        RRF fusion
        dynamic top-K by question type
@@ -539,7 +545,7 @@ Recommended next improvements for large documents:
 5. Add queue rate limiting for Gemini calls.
 6. Add per-user upload/job limits.
 7. Add worker dashboard or queue status endpoint.
-8. Consider Atlas Vector Search or a local vector index if documents get very large or many chunks per user.
+8. Enable Atlas Vector Search in production after creating the chunk embedding index.
 
 ---
 
@@ -566,5 +572,5 @@ Recommended next improvements for large documents:
 7. **SSE for chat and processing progress**
    Both chat output and document progress are one-way server-to-client updates, so the project uses SSE for both instead of maintaining a separate WebSocket transport.
 
-8. **In-memory vector search for now**  
-   Current vector search streams chunks with a MongoDB cursor and keeps only a capped candidate set in memory. Hybrid search retrieves a wider candidate set before RRF, then returns final top-K. Acceptable for small/medium per-document chunk sets. Revisit with Atlas Vector Search or another vector index if chunks per document or users grow significantly.
+8. **Optional Atlas Vector Search**
+   Vector retrieval supports Atlas Vector Search when `ENABLE_ATLAS_VECTOR_SEARCH=true` and the chunk embedding index exists. Without that configuration, it falls back to the original MongoDB cursor plus app-level cosine scan. Hybrid search still retrieves a wider candidate set before RRF, then returns final top-K.

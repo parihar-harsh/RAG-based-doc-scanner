@@ -355,6 +355,10 @@ Interview explanation:
 | `RAG_TOP_K_COMPARE` | Number of chunks retrieved for comparison questions. |
 | `RAG_CANDIDATE_MULTIPLIER` | Candidate multiplier before RRF. With `2`, vector search and text search each retrieve `2 * topK` candidates before final fusion. |
 | `RAG_MAX_SEARCH_CANDIDATES` | Safety cap for each retrieval leg before RRF. |
+| `ENABLE_ATLAS_VECTOR_SEARCH` | Enables MongoDB Atlas Vector Search for the vector retrieval leg. Keep false until the Atlas search index exists. |
+| `ATLAS_VECTOR_SEARCH_INDEX` | Atlas Vector Search index name for chunk embeddings. Default: `chunk_embedding_vector_index`. |
+| `ATLAS_VECTOR_NUM_CANDIDATES_MULTIPLIER` | Multiplier used to choose Atlas `$vectorSearch.numCandidates` from the requested vector result limit. |
+| `ATLAS_VECTOR_MAX_NUM_CANDIDATES` | Upper cap for Atlas `$vectorSearch.numCandidates`. |
 | `ENABLE_QUERY_REWRITE` | Enables follow-up query rewriting. |
 | `ENABLE_HYDE` | Enables HyDE retrieval for short/vague questions. |
 | `ENABLE_HYBRID_SEARCH` | Enables vector + keyword hybrid retrieval. If false, retrieval uses vector search only. |

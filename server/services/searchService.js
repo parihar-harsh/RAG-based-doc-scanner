@@ -1,9 +1,16 @@
+const mongoose = require('mongoose');
 const Chunk = require('../models/Chunk');
 const { cosineSimilarity } = require('./embeddingService');
 
 const TOP_K = parseInt(process.env.RAG_TOP_K, 10) || 8;
 const CANDIDATE_MULTIPLIER = parseInt(process.env.RAG_CANDIDATE_MULTIPLIER, 10) || 2;
 const MAX_SEARCH_CANDIDATES = parseInt(process.env.RAG_MAX_SEARCH_CANDIDATES, 10) || 50;
+const ENABLE_ATLAS_VECTOR_SEARCH = process.env.ENABLE_ATLAS_VECTOR_SEARCH === 'true';
+const ATLAS_VECTOR_SEARCH_INDEX = process.env.ATLAS_VECTOR_SEARCH_INDEX || 'chunk_embedding_vector_index';
+const ATLAS_VECTOR_NUM_CANDIDATES_MULTIPLIER =
+  parseInt(process.env.ATLAS_VECTOR_NUM_CANDIDATES_MULTIPLIER, 10) || 20;
+const ATLAS_VECTOR_MAX_NUM_CANDIDATES =
+  parseInt(process.env.ATLAS_VECTOR_MAX_NUM_CANDIDATES, 10) || 10000;
 
 function normalizePositiveInt(value, fallback) {
   const parsed = parseInt(value, 10);
@@ -18,6 +25,17 @@ function getCandidateLimit(topK) {
   const multiplier = normalizePositiveInt(CANDIDATE_MULTIPLIER, 2);
   const maxCandidates = normalizePositiveInt(MAX_SEARCH_CANDIDATES, Math.max(topK * multiplier, topK));
   return Math.max(topK, Math.min(topK * multiplier, maxCandidates));
+}
+
+function getAtlasNumCandidates(limit) {
+  const normalizedLimit = normalizeLimit(limit);
+  const multiplier = normalizePositiveInt(ATLAS_VECTOR_NUM_CANDIDATES_MULTIPLIER, 20);
+  const maxCandidates = normalizePositiveInt(
+    ATLAS_VECTOR_MAX_NUM_CANDIDATES,
+    Math.max(normalizedLimit * multiplier, normalizedLimit)
+  );
+
+  return Math.max(normalizedLimit, Math.min(normalizedLimit * multiplier, maxCandidates));
 }
 
 function isValidEmbedding(vector) {
@@ -39,7 +57,57 @@ function documentCriteria(documentIds) {
     : { documentId: documentIds };
 }
 
-async function vectorSearch(documentId, queryEmbedding, limit = TOP_K) {
+function toObjectId(value) {
+  if (value instanceof mongoose.Types.ObjectId) return value;
+  return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
+}
+
+function atlasDocumentFilter(documentIds) {
+  if (Array.isArray(documentIds)) {
+    const ids = documentIds.map(toObjectId);
+    return { documentId: { $in: ids } };
+  }
+
+  return { documentId: toObjectId(documentIds) };
+}
+
+async function atlasVectorSearch(documentId, queryEmbedding, limit = TOP_K) {
+  const normalizedLimit = normalizeLimit(limit);
+  if (!isValidEmbedding(queryEmbedding)) return [];
+
+  const results = await Chunk.aggregate([
+    {
+      $vectorSearch: {
+        index: ATLAS_VECTOR_SEARCH_INDEX,
+        path: 'embedding',
+        queryVector: queryEmbedding,
+        numCandidates: getAtlasNumCandidates(normalizedLimit),
+        limit: normalizedLimit,
+        filter: atlasDocumentFilter(documentId),
+      },
+    },
+    {
+      $project: {
+        documentId: 1,
+        chunkIndex: 1,
+        text: 1,
+        tokenCount: 1,
+        startSentence: 1,
+        endSentence: 1,
+        pageNumber: 1,
+        endPageNumber: 1,
+        score: { $meta: 'vectorSearchScore' },
+      },
+    },
+  ]);
+
+  return results.map(({ score = 0, ...chunk }) => ({
+    chunk,
+    score,
+  }));
+}
+
+async function appVectorSearch(documentId, queryEmbedding, limit = TOP_K) {
   const normalizedLimit = normalizeLimit(limit);
   if (!isValidEmbedding(queryEmbedding)) return [];
 
@@ -72,6 +140,18 @@ async function vectorSearch(documentId, queryEmbedding, limit = TOP_K) {
   }
 
   return top.sort((a, b) => b.score - a.score);
+}
+
+async function vectorSearch(documentId, queryEmbedding, limit = TOP_K) {
+  if (ENABLE_ATLAS_VECTOR_SEARCH) {
+    try {
+      return await atlasVectorSearch(documentId, queryEmbedding, limit);
+    } catch (err) {
+      console.warn('Atlas Vector Search failed, falling back to app-level vector scan:', err.message);
+    }
+  }
+
+  return appVectorSearch(documentId, queryEmbedding, limit);
 }
 
 /**
@@ -182,8 +262,13 @@ module.exports = {
   textSearch,
   reciprocalRankFusion,
   _private: {
+    appVectorSearch,
+    atlasDocumentFilter,
+    atlasVectorSearch,
     getCandidateLimit,
+    getAtlasNumCandidates,
     isValidEmbedding,
     normalizeLimit,
+    toObjectId,
   },
 };

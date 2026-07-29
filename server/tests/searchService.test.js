@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const mongoose = require('mongoose');
 const { reciprocalRankFusion, _private } = require('../services/searchService');
 
 function item(id) {
@@ -42,4 +43,18 @@ test('invalid topK falls back to default', () => {
   assert.equal(_private.normalizeLimit(0), 8);
   assert.equal(_private.normalizeLimit('bad'), 8);
   assert.equal(_private.normalizeLimit(5), 5);
+});
+
+test('Atlas vector numCandidates scales above limit and respects max cap', () => {
+  assert.equal(_private.getAtlasNumCandidates(8), 160);
+  assert.equal(_private.getAtlasNumCandidates(600), 10000);
+});
+
+test('Atlas vector filter casts valid document ids for aggregation', () => {
+  const id = new mongoose.Types.ObjectId().toString();
+  const single = _private.atlasDocumentFilter(id);
+  assert.equal(single.documentId.toString(), id);
+
+  const multiple = _private.atlasDocumentFilter([id]);
+  assert.equal(multiple.documentId.$in[0].toString(), id);
 });

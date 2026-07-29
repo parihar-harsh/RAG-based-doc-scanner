@@ -82,6 +82,14 @@ services:
         value: "2"
       - key: RAG_MAX_SEARCH_CANDIDATES
         value: "50"
+      - key: ENABLE_ATLAS_VECTOR_SEARCH
+        value: "false"
+      - key: ATLAS_VECTOR_SEARCH_INDEX
+        value: chunk_embedding_vector_index
+      - key: ATLAS_VECTOR_NUM_CANDIDATES_MULTIPLIER
+        value: "20"
+      - key: ATLAS_VECTOR_MAX_NUM_CANDIDATES
+        value: "10000"
       - key: ENABLE_QUERY_REWRITE
         value: "true"
       - key: ENABLE_HYDE
