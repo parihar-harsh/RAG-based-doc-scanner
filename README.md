@@ -578,6 +578,12 @@ After both deploys:
 - In Vercel, trigger a redeploy after setting `VITE_API_URL`.
 - In Render, confirm the worker logs show `Document worker running`.
 
+To prevent MongoDB Atlas M0 inactivity pauses, the Vercel deployment includes a
+daily authenticated database check. Set the server-only `MONGODB_URI` and
+`CRON_SECRET` variables in Vercel Production, then deploy. See
+[MongoDB keepalive setup](MONGODB_KEEPALIVE.md) for network requirements,
+verification, and the distinction between Atlas pausing and Render sleeping.
+
 ## Docker
 
 The root `Dockerfile` is multi-stage:
